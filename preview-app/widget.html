@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; style-src 'unsafe-inline'; script-src 'self'">
+<title>Wella Hub widget</title>
+<style>
+:root{--ac:#ff2e93}
+*{box-sizing:border-box;margin:0}
+html,body{background:transparent;overflow:hidden;user-select:none;font:12px/1.25 "Segoe UI",system-ui,sans-serif;color:#f7f2f8}
+#w{display:inline-flex;flex-direction:column;gap:5px;padding:8px;border-radius:14px;background:linear-gradient(145deg,rgba(22,13,23,.97),rgba(9,8,13,.96));border:1px solid color-mix(in srgb,var(--ac) 42%,transparent);box-shadow:0 8px 28px #0008,0 0 18px color-mix(in srgb,var(--ac) 15%,transparent);-webkit-app-region:drag;white-space:nowrap}
+#w.nodrag{-webkit-app-region:no-drag}
+#w.row{flex-direction:row;gap:6px;align-items:stretch}
+.a{display:flex;align-items:center;gap:8px;min-height:36px;padding:5px 7px;border:1px solid #ffffff10;border-radius:10px;background:#ffffff06}
+#w.row .a{padding:5px 8px}
+.dot{width:8px;height:8px;border-radius:50%;background:#67616c;flex:none}
+.dot.ok{background:#39df91;box-shadow:0 0 8px #39df91a8}
+.dot.mid{background:#ffc45d;box-shadow:0 0 7px #ffc45d88}
+.av{width:24px;height:24px;border-radius:7px;flex:none;object-fit:cover;border:1px solid #ffffff20}
+.who{display:flex;flex-direction:column;gap:2px;min-width:52px;max-width:120px}
+.nm{font-weight:650;max-width:120px;overflow:hidden;text-overflow:ellipsis;color:#fff}
+.state{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#aaa0b1}
+.state.on{color:#56e2a0}
+.v{display:flex;flex-direction:column;gap:2px;min-width:39px;padding:4px 6px;border-radius:7px;background:#0004;color:#9e91a4;font-size:8px;text-transform:uppercase;letter-spacing:.05em;font-variant-numeric:tabular-nums}
+.v b{color:#f8edf6;font-size:11px;font-weight:650;letter-spacing:0;text-transform:none}
+.v.ac b{color:var(--ac)}
+.sum{border-color:color-mix(in srgb,var(--ac) 24%,transparent);background:color-mix(in srgb,var(--ac) 8%,transparent)}
+.empty{padding:4px 7px;color:#c2b5c8}
+</style></head>
+<body><div id="w"><span class="empty">Wella Hub</span></div>
+<script src="widget.js"></script></body></html>

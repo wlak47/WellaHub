@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#050505">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Wella Hub">
+<link rel="apple-touch-icon" href="assets/emblem.png">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Wella Hub v0.2-testbuild</title>
+<link rel="stylesheet" href="style.css">
+<script src="theme.js"></script>
+<script src="bg.js"></script>
+<script src="i18n.js"></script>
+</head>
+<body class="boot">
+
+<!-- opening animation: clock dial + logo + title + loading bar -->
+<div id="splash" class="splash">
+  <div class="sp-stage">
+    <div class="sp-dial"></div>
+    <div class="sp-sweep"></div>
+    <div class="sp-hand"></div><div class="sp-hand sm"></div><i class="sp-pin"></i>
+    <img class="sp-emblem logoimg" src="assets/emblem.png" alt="" draggable="false">
+  </div>
+  <div class="sp-title" aria-label="Wella Hub">
+    <span style="--n:0">W</span><span style="--n:1">E</span><span style="--n:2">L</span><span style="--n:3">L</span><span style="--n:4">A</span><span class="gap"></span><span class="hub" style="--n:6">H</span><span class="hub" style="--n:7">U</span><span class="hub" style="--n:8">B</span>
+  </div>
+  <div class="sp-load">
+    <div class="sp-row">
+      <svg class="sp-clock" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path class="hm" d="M12 12V5.5"/><path class="hh" d="M12 12l3.5 2"/></svg>
+      <span id="spText">Starting…</span>
+      <b id="spPct">0%</b>
+    </div>
+    <div class="sp-bar"><i id="spBar"></i></div>
+  </div>
+  <div class="sp-ver">v0.2-testbuild</div>
+  <button id="spSkip" class="btn red sp-skip">Skip</button>
+</div>
+
+<header class="top">
+  <img class="logo logoimg" src="assets/emblem-s.png" alt="" draggable="false">
+  <span class="brand"><span>Wella</span><b>Hub</b></span>
+  <div class="tabs">
+    <span class="ind"></span>
+    <button class="tab" data-tab="ach"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>Achievement Manager</button>
+    <button class="tab active" data-tab="boost"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>Hour Booster</button>
+    <button class="tab" id="tabFree" data-tab="free"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg>Free Games</button>
+    <button class="tab" id="tabUtil" data-tab="util"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Utility</button>
+    <button class="tab hidden" id="tabFps" data-tab="fps"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 4 4-8 5 6"/><path d="M3 21h18"/></svg>FPS Monitor</button>
+    <button class="tab hidden" id="tabPc" data-tab="pcmon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 11l2-2 2 3 3-5 3 4"/></svg>Monitor</button>
+    <button class="tab hidden" id="tabRemote" data-tab="remote">Remote PC</button>
+  </div>
+  <button class="gear" id="gear" title="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  <i class="beam" id="beam"></i>
+</header>
+<div class="shell" id="viewBoost">
+  <nav id="side" class="side"></nav>
+  <main class="main">
+    <div class="head">
+      <h1 id="title"></h1>
+      <div class="head-actions">
+        <button class="btn ghost sm" id="rotationToggle" title="Rotate through owned games every 10 minutes">Rotate games: Off</button>
+        <button class="btn start sm" id="startAll">Start all</button>
+        <button class="btn stop sm" id="stopAll">Stop all</button>
+      </div>
+    </div>
+    <div id="cards"></div>
+  </main>
+</div>
+<div class="shell hidden" id="viewAch">
+  <aside class="gside">
+    <div id="aProf" class="aprof"></div>
+    <select id="aAcc" class="in"></select>
+    <input id="gSearch" class="in" placeholder="Search games">
+    <div class="gtools">
+      <button class="btn ghost" id="gAll">Select all</button>
+      <button class="btn text" id="gNone">None</button>
+    </div>
+    <button class="btn ghost" id="gMissing" title="Reads every game (nothing is started or changed) and ticks only the games where you still miss achievements">Select games with missing achievements</button>
+    <button class="btn ghost hidden" id="gResume" title="Continues the search with the games that were not read yet and the ones that failed">Resume search</button>
+    <small class="fnote" id="gFind"></small>
+    <button class="btn red" id="gBulk" disabled>Unlock all achievements</button>
+    <button class="mnote" id="aMethod" title="Click to check again"></button>
+    <div id="gList" class="glist"></div>
+  </aside>
+  <section class="amain" id="aMain"><div class="empty">Pick a game on the left.</div></section>
+</div>
+<div class="shell hidden" id="viewUtil">
+  <main class="main"><div class="utilpage" id="utilBody"></div></main>
+</div>
+<div class="shell hidden" id="viewFree"><main class="main pcmain free-main" id="freeMain"></main></div>
+<div class="shell hidden" id="viewPc">
+  <main class="main pcmain" id="pcMain"><div class="empty">Monitor is off. Turn it on in Settings &gt; General.</div></main>
+</div>
+<div class="shell hidden" id="viewFps">
+  <main class="main pcmain" id="fpsMain"><div class="empty">FPS Monitor is off. Turn it on in Settings &gt; General.</div></main>
+</div>
+<div class="shell hidden" id="viewRemote"><main class="main pcmain" id="remoteMain"></main></div>
+<footer class="foot">
+  <div class="fl">
+    <a class="gl" href="https://guns.lol/we7g" target="_blank" rel="noopener noreferrer" title="guns.lol/we7g">guns.lol</a>
+    <span class="clk" id="clk" title="Local time">--:--:--</span>
+    <span id="fCount"></span><span id="fVer"></span></div>
+  <div class="fr">
+    <span id="fStatus" class="pill off"><i class="pd"></i><b>Offline</b></span>
+    <span class="made">Made with <i class="heart">♥</i> by Wella</span>
+  </div>
+</footer>
+<div id="modal" class="overlay hidden"></div>
+<div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script src="mock-api.js"></script>
+<script src="boot.js"></script>
+<script src="app.js"></script>
+<script src="tools.js"></script>
+<script src="pcmon.js"></script>
+<script src="remote-pc.js"></script>
+<script src="free.js"></script>
+<script src="extras.js"></script>
+</body>
+</html>
