@@ -14,8 +14,9 @@
   const gb = (b) => (b / 1073741824).toFixed(b >= 107374182400 ? 0 : 1) + ' GB';
   const lvl = (p) => (p >= 90 ? 'crit' : p >= 70 ? 'warn' : '');
 
-  let cfg = null, snap = null, built = false, els = {};
+  let cfg = null, snap = null, built = false, els = {}, webAdmin = !window.__WELLA_WEB;
   const hist = { cpu: [], gpu: [], ram: [] };
+  let taskProcesses = [], taskManagerBuilt = false;
 
   // ================= sounds + in-app notification =================
   let actx = null;
@@ -55,7 +56,8 @@
     if (!on && typeof tab !== 'undefined' && tab === key) setTab('boost');
   };
   function applyTabs() {
-    showTab('tabPc', 'pcmon', !!(window.__WELLA_WEB ? (cfg && (cfg.enabled || cfg.fpsTab)) : (cfg && cfg.enabled)));
+    showTab('tabPc', 'pcmon', !!(cfg && cfg.enabled) && !(window.__WELLA_WEB && webAdmin));   // Monitor does not work in the Admin Panel, so it is hidden there only
+    showTab('tabTaskManager', 'taskmgr', !!(window.__WELLA_WEB && webAdmin));
     showTab('tabFps', 'fps', !window.__WELLA_WEB && !!(cfg && cfg.fpsTab));
     if (typeof moveInd === 'function') { moveInd(); setTimeout(moveInd, 60); }
     if (cfg && cfg.enabled) paint(); else { built = false; if (window.__WELLA_WEB && tab === 'pcmon') paint(); }
@@ -69,13 +71,14 @@
     return { root: h('div', { class: 'pcc' }, h('div', { class: 'ph' }, svg(icon), title, sm), ...body), sub: sm };
   };
   const bar = () => h('div', { class: 'pcbar' }, h('i'));
-  const big = () => h('div', { class: 'pcbig' });
+  const big = () => { const el = h('div', { class: 'pcbig' }); el._value = document.createTextNode(''); el._unit = h('small', {}, ''); el.append(el._value, el._unit); return el; };
+  const setBig = (el, value, unit = '%') => { if (el._value.nodeValue !== String(value)) el._value.nodeValue = String(value); if (el._unit.textContent !== unit) el._unit.textContent = unit; };
   const spark = () => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 120 44'); s.setAttribute('preserveAspectRatio', 'none'); s.setAttribute('class', 'pcspark'); s.innerHTML = '<path class="fill"/><path class="line"/>'; return s; };
   const row = (a) => { const v = h('b', {}, '\u2014'); return { root: h('div', { class: 'pcrow' }, h('span', {}, a), v), v }; };
 
   function build() {
     const host = document.getElementById('pcMain'); if (!host) return;
-    els = {};
+    els = {}; taskManagerBuilt = false;
     const cpu = card('CPU', IC.cpu, '', null), gpu = card('GPU', IC.gpu, '', null), ram = card('RAM', IC.ram, '', null);
     // CPU
     els.cpuB = big(); els.cpuBar = bar(); els.cpuSp = spark(); els.cpuT = row('Temperature'); els.cpuC = row('Cores');
@@ -102,7 +105,7 @@
     host.replaceChildren(...(remoteCtl ? [remoteCtl, grid] : [grid]));
     built = true;
   }
-  const setBar = (b, p) => { const i = b.firstChild; i.style.width = Math.max(0, Math.min(100, p || 0)) + '%'; i.className = lvl(p || 0); };
+  const setBar = (b, p) => { const i = b.firstChild, width = Math.max(0, Math.min(100, p || 0)) + '%', level = lvl(p || 0); if (i.style.width !== width) i.style.width = width; if (i.className !== level) i.className = level; };
   function drawSpark(s, arr) {
     if (arr.length < 2) return;
     const n = 60, a = arr.slice(-n), step = 120 / (n - 1), off = (n - a.length) * step;
@@ -113,16 +116,67 @@
   }
   const NA = 'Not available';
 
+  function buildTaskManager() {
+    if (!els.taskManager || taskManagerBuilt) return;
+    const search = h('input', { class: 'in', type: 'search', placeholder: 'Search process name or PID', 'aria-label': 'Search processes' });
+    const count = h('small', { class: 'pctask-count' }, 'Open the task manager to load processes.');
+    const rows = h('div', { class: 'pctask-rows' });
+    const draw = () => {
+      const q = search.value.trim().toLowerCase();
+      const list = taskProcesses.filter((p) => !q || p.name.toLowerCase().includes(q) || String(p.pid).includes(q));
+      count.textContent = `${list.length} processes`;
+      const items = list.map((p) => h('div', { class: 'pctask-row' },
+        h('span', { class: 'pctask-name' }, p.name), h('span', {}, `PID ${p.pid}`),
+        h('span', {}, `${Number(p.cpu || 0).toFixed(1)}% · ${gb(p.memory || 0)}`),
+        h('button', { class: 'btn stop sm', title: `End ${p.name}`, onclick: async () => {
+          if (!confirm(`End ${p.name} (PID ${p.pid})? This may close unsaved work.`)) return;
+          try { await window.api.pcmonEndProcess(p.pid); toast(`${p.name} ended`, 'ok'); await loadProcesses(); }
+          catch (e) { toast(e.message || String(e), 'bad'); }
+        } }, 'End task')));
+      rows.replaceChildren(...(items.length ? items : [h('div', { class: 'pcnote' }, taskProcesses.length ? 'No matching processes.' : 'No process details available.')]));
+    };
+    search.addEventListener('input', draw);
+    const refresh = h('button', { class: 'btn ghost sm', onclick: () => loadProcesses() }, 'Refresh');
+    const load = h('button', { class: 'btn ghost sm', onclick: () => loadProcesses() }, 'Open task manager');
+    const actionRow = h('div', { class: 'pctask-controls' },
+      h('button', { class: 'btn stop sm', onclick: async () => { if (!confirm('Schedule a normal Windows shutdown in 30 seconds? You can cancel it below.')) return; try { const r = await window.api.pcAdminShutdown(); if (r && r.error) throw new Error(r.error); toast('Shutdown scheduled in 30 seconds. Use Cancel shutdown if needed.', 'ok'); } catch(e) { toast(e.message || String(e), 'bad'); } } }, 'Shutdown PC (30s)'),
+      h('button', { class: 'btn ghost sm', onclick: async () => { try { const r = await window.api.pcAdminCancelShutdown(); if (r && r.error) throw new Error(r.error); toast('Shutdown cancelled.', 'ok'); } catch(e) { toast(e.message || String(e), 'bad'); } } }, 'Cancel shutdown'),
+      h('button', { class: 'btn ghost sm', onclick: async () => { try { const r = await window.api.pcAdminBsodSimulate(); if (r && r.error) throw new Error(r.error); toast('Showing a temporary BSOD-style simulation on the PC.', 'ok'); } catch(e) { toast(e.message || String(e), 'bad'); } } }, 'Simulate Windows error'),
+      h('button', { class: 'btn ghost sm', onclick: async () => { try { const r = await window.api.pcAdminBlackStart(); if (r && r.error) throw new Error(r.error); toast('Black screen enabled. Press ESC on the PC or use Stop black screen here.', 'ok'); } catch(e) { toast(e.message || String(e), 'bad'); } } }, 'Start black screen'),
+      h('button', { class: 'btn ghost sm', onclick: async () => { try { const r = await window.api.pcAdminBlackStop(); if (r && r.error) throw new Error(r.error); toast('Black screen stopped.', 'ok'); } catch(e) { toast(e.message || String(e), 'bad'); } } }, 'Stop black screen'));
+    els.taskManager.replaceChildren(actionRow, h('div', { class: 'pctask-controls' }, search, count, load, refresh), rows);
+    taskManagerBuilt = true;
+    // Keep the buttons lightweight: process details refresh only on request.
+    els.taskManager._draw = draw;
+  }
+
+  async function loadProcesses() {
+    if (!els.taskManager) return;
+    const buttons = els.taskManager.querySelectorAll('button');
+    buttons.forEach((b) => { b.disabled = true; });
+    try {
+      const r = await window.api.pcmonProcesses();
+      taskProcesses = Array.isArray(r) ? r : [];
+      if (els.taskManager._draw) els.taskManager._draw();
+    } catch (e) { toast(e.message || String(e), 'bad'); }
+    finally { buttons.forEach((b) => { if (b.isConnected) b.disabled = false; }); }
+  }
+
   function paint() {
     const host = document.getElementById('pcMain'); if (!host) return;
-    if (!cfg || (!cfg.enabled && !(window.__WELLA_WEB && cfg.fpsTab))) { built = false; const off = h('div', { class: 'empty' }, 'Monitor is off. Turn it on to stream readings from this PC.'); const start = window.__WELLA_WEB ? h('button', { class: 'btn start', style: 'margin:0 auto', onclick: () => setEnabled(true) }, 'Start Monitor') : null; host.replaceChildren(...(start ? [off, start] : [off])); return; }
+    if (!cfg || (!cfg.enabled && !(window.__WELLA_WEB && cfg.fpsTab))) {
+      built = false;
+      const off = h('div', { class: 'empty' }, 'System monitor is off. Process management works without enabling background monitoring.');
+      host.replaceChildren(off);
+      return;
+    }
     if (!built) build();
-    if (!snap) { els.cpuB.textContent = '\u2026'; els.gpuB.textContent = '\u2026'; els.ramB.textContent = '\u2026'; return; }
+    if (!snap) { setBig(els.cpuB, '\u2026', ''); setBig(els.gpuB, '\u2026', ''); setBig(els.ramB, '\u2026', ''); return; }
     const lim = cfg || {};
     // CPU
     const c = snap.cpu || {};
     els.cpuSub.textContent = c.name || '';
-    if (c.usage != null) { els.cpuB.replaceChildren(c.usage + '', h('small', {}, '%')); setBar(els.cpuBar, c.usage); hist.cpu.push(c.usage); if (hist.cpu.length > 60) hist.cpu.shift(); drawSpark(els.cpuSp, hist.cpu); }
+    if (c.usage != null) { setBig(els.cpuB, c.usage); setBar(els.cpuBar, c.usage); hist.cpu.push(c.usage); if (hist.cpu.length > 60) hist.cpu.shift(); drawSpark(els.cpuSp, hist.cpu); }
     els.cpuT.v.textContent = c.temp != null ? c.temp + ' \u00B0C' : NA;
     els.cpuC.v.textContent = c.cores ? c.cores + ' threads' : '\u2014';
     els.cpuNote.textContent = c.temp == null ? 'Windows does not expose the CPU temperature on many PCs. When it is hidden, a tool such as LibreHardwareMonitor is needed.' : '';
@@ -130,8 +184,8 @@
     // GPU
     const g = snap.gpu;
     els.gpuSub.textContent = g ? g.name : '';
-    if (g && g.usage != null) { els.gpuB.replaceChildren(Math.round(g.usage) + '', h('small', {}, '%')); setBar(els.gpuBar, g.usage); hist.gpu.push(g.usage); if (hist.gpu.length > 60) hist.gpu.shift(); drawSpark(els.gpuSp, hist.gpu); }
-    else { els.gpuB.replaceChildren(NA); setBar(els.gpuBar, 0); }
+    if (g && g.usage != null) { setBig(els.gpuB, Math.round(g.usage)); setBar(els.gpuBar, g.usage); hist.gpu.push(g.usage); if (hist.gpu.length > 60) hist.gpu.shift(); drawSpark(els.gpuSp, hist.gpu); }
+    else { setBig(els.gpuB, NA, ''); setBar(els.gpuBar, 0); }
     els.gpuT.v.textContent = g && g.temp != null ? g.temp + ' \u00B0C' : NA;
     els.gpuV.v.textContent = g && g.vramTotal ? `${(g.vramUsed / 1024).toFixed(1)} / ${(g.vramTotal / 1024).toFixed(1)} GB` : NA;
     els.gpuNote.textContent = g ? (g.temp == null ? 'This graphics card does not report its temperature to the app.' : '') : 'No readable GPU sensor was found (NVIDIA cards work best).';
@@ -139,14 +193,18 @@
     // RAM
     const r = snap.ram;
     if (r) {
-      els.ramB.replaceChildren(r.percent + '', h('small', {}, '%')); setBar(els.ramBar, r.percent); hist.ram.push(r.percent); if (hist.ram.length > 60) hist.ram.shift(); drawSpark(els.ramSp, hist.ram);
+      setBig(els.ramB, r.percent); setBar(els.ramBar, r.percent); hist.ram.push(r.percent); if (hist.ram.length > 60) hist.ram.shift(); drawSpark(els.ramSp, hist.ram);
       els.ramSub.textContent = gb(r.total);
       els.ramU.v.textContent = gb(r.used); els.ramF.v.textContent = gb(r.total - r.used);
       els.ramCard.classList.toggle('hot', r.percent >= lim.ram);
     }
     // disks
     const ds = snap.disks || [];
-    els.disks.replaceChildren(...(ds.length ? ds.map((d) => h('div', {}, h('div', { class: 'pcrow' }, h('span', {}, d.id), h('b', {}, `${gb(d.total - d.free)} used \u00B7 ${gb(d.free)} free of ${gb(d.total)}`)), (() => { const b = bar(); setBar(b, d.percent); b.style.marginTop = '6px'; return b; })())) : [h('div', { class: 'pcnote' }, 'No disk information available.')]));
+    const diskSig = JSON.stringify(ds.map((d) => [d.id, d.total, d.free, d.percent]));
+    if (els.diskSig !== diskSig) {
+      els.diskSig = diskSig;
+      els.disks.replaceChildren(...(ds.length ? ds.map((d) => h('div', {}, h('div', { class: 'pcrow' }, h('span', {}, d.id), h('b', {}, `${gb(d.total - d.free)} used \u00B7 ${gb(d.free)} free of ${gb(d.total)}`)), (() => { const b = bar(); setBar(b, d.percent); b.style.marginTop = '6px'; return b; })())) : [h('div', { class: 'pcnote' }, 'No disk information available.')]));
+    }
     // alerts
     const warn = [];
     if (c.temp != null && c.temp >= lim.cpuTemp) warn.push(`CPU ${c.temp}\u00B0C`);
@@ -160,12 +218,15 @@
     const time = uptime >= 86400 ? `${Math.floor(uptime / 86400)}d ${Math.floor(uptime % 86400 / 3600)}h` : `${Math.floor(uptime / 3600)}h ${Math.floor(uptime % 3600 / 60)}m`;
     const battery = sys.battery ? `Battery ${sys.battery.percent}%` : 'No battery';
     const top = (sys.topProcesses || []).slice(0, 6);
-    els.systemStats.replaceChildren(
+    const systemSig = JSON.stringify([time, battery, top.map((p) => [p.name, p.cpu, p.memory])]);
+    if (els.systemSig !== systemSig) {
+      els.systemSig = systemSig;
+      els.systemStats.replaceChildren(
       h('div', { class: 'pcrow' }, h('span', {}, 'Uptime'), h('b', {}, time)),
       h('div', { class: 'pcrow' }, h('span', {}, 'Power'), h('b', {}, battery)),
-      h('div', { class: 'pcprocess-head' }, 'Top processes'),
-      ...(top.length ? top.map((p) => h('div', { class: 'pcrow' }, h('span', {}, p.name), h('b', {}, `${Number(p.cpu || 0).toFixed(1)}% · ${gb(p.memory || 0)}`))) : [h('div', { class: 'pcnote' }, 'Process details are loading…')])
-    );
+      ...(!window.__WELLA_WEB || webAdmin ? [h('div', { class: 'pcprocess-head' }, 'Top processes'), ...(top.length ? top.map((p) => h('div', { class: 'pcrow' }, h('span', {}, p.name), h('b', {}, `${Number(p.cpu || 0).toFixed(1)}% · ${gb(p.memory || 0)}`))) : [h('div', { class: 'pcnote' }, 'Process details are loading…')])] : [])
+      );
+    }
   }
 
   // ================= FPS Monitor view =================
@@ -217,6 +278,21 @@
     }
   }
 
+  async function showTaskManager() {
+    const host = document.getElementById('taskManagerMain');
+    if (!host) return;
+    if (window.__WELLA_WEB && !webAdmin) {
+      host.replaceChildren(h('div', { class: 'empty' }, 'Task Manager requires an administrator login. Log out and sign in with the administrator password.'));
+      return;
+    }
+    els = {}; taskManagerBuilt = false;
+    els.taskManager = h('div', { class: 'pctask-manager' });
+    const manager = card('Task Manager', IC.cpu, 'Manage running processes separately from Monitor', els.taskManager);
+    manager.root.classList.add('pcwide');
+    host.replaceChildren(h('div', { class: 'pcgrid' }, manager.root));
+    buildTaskManager();
+  }
+
   async function show() {
     try { const r = await window.api.pcmonGet(); cfg = r.cfg; if (r.snapshot) snap = r.snapshot; } catch {}
     paint(); paintFps();
@@ -225,6 +301,7 @@
   // ================= events + start-up =================
   if (window.api && window.api.onPcmon) window.api.onPcmon((s) => { snap = s; if (typeof tab === 'undefined') return; if (tab === 'pcmon') { paint(); if (window.__WELLA_WEB) paintFps(); } else if (tab === 'fps') paintFps(); });
   if (window.api && window.api.onPcmonCfg) window.api.onPcmonCfg((c) => { cfg = c; applyTabs(); });
+  if (window.__WELLA_WEB && window.api && window.api.remoteIsAdmin) window.api.remoteIsAdmin().then((ok) => { webAdmin = !!ok; applyTabs(); if (typeof tab !== 'undefined' && tab === 'pcmon') paint(); if (webAdmin) { const r = document.getElementById('tabRemote'); const t = document.getElementById('tabTaskManager'); if (r) r.classList.remove('hidden'); if (t) t.classList.remove('hidden'); } }).catch(() => { webAdmin = false; applyTabs(); });
   (async () => { try { const r = await window.api.pcmonGet(); cfg = r.cfg; snap = r.snapshot || null; applyTabs(); } catch {} })();
 
   // ================= Settings > General: the switch =================
@@ -275,7 +352,7 @@
     ] : [];
     const notifyPart = [
       chk('Notifications on', nt.enabled, (v) => setNt({ enabled: v })),
-      chk('Desktop notifications', nt.desktop, (v) => setNt({ desktop: v }), 'Windows pop-up, shown when the app window is not in front.'),
+      chk('Custom pop-up notifications', nt.desktop, (v) => setNt({ desktop: v }), 'Wella Hub pop-up with its custom sound, shown when the window is in the tray. No Windows notification is sent.'),
       chk('Sound', nt.sound, (v) => setNt({ sound: v })),
       h('div', { class: 'setrow' }, h('b', {}, 'Volume'), vol),
       h('div', { class: 'setrow', style: 'flex-direction:row;gap:8px;flex-wrap:wrap' },
@@ -288,5 +365,5 @@
     return (part === 'monitor' ? monitorPart : part === 'notify' ? notifyPart : [...monitorPart, h('div', { class: 'sep' }), ...notifyPart]).filter(Boolean);
   }
 
-  window.WellaMon = { applyTab, show, load, generalToggle, monitorTab, icon: IC.cpu };
+  window.WellaMon = { applyTab, show, showTaskManager, load, generalToggle, monitorTab, icon: IC.cpu };
 })();

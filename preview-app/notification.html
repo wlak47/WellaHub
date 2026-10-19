@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ro">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wella Hub</title>
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:transparent;font:14px "Segoe UI",sans-serif;color:#fff}
+    .card{height:100%;padding:8px 10px;border:1px solid #ff398e;border-radius:13px;background:linear-gradient(140deg,rgba(46,18,32,.97),rgba(15,10,16,.98));box-shadow:0 6px 20px #0009,0 0 12px #ff398e30;display:flex;gap:7px;align-items:flex-start;animation:in .22s ease-out}
+    .mark{width:8px;height:8px;flex:none;margin-top:4px;border-radius:50%;background:#ff4a9d;box-shadow:0 0 9px #ff4a9d}.bad .mark{background:#ff5364;box-shadow:0 0 9px #ff5364}.ok .mark{background:#24d18b;box-shadow:0 0 9px #24d18b}
+    .content{min-width:0;flex:1}.brand{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:#ff86bd;font-weight:700;margin-bottom:2px}.title{font-size:13px;font-weight:700;line-height:1.15;margin-bottom:2px}.body{font-size:10px;color:#d4c4ce;line-height:1.3;white-space:pre-line;max-height:42px;overflow:hidden;overflow-wrap:anywhere}.close{border:0;background:transparent;color:#a98b9b;font-size:16px;line-height:1;cursor:pointer;padding:0 1px}
+    @keyframes in{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+  </style>
+</head>
+<body>
+  <div id="card" class="card"><span class="mark"></span><div class="content"><div class="brand">Wella Hub</div><div id="title" class="title"></div><div id="body" class="body"></div></div><button id="close" class="close" aria-label="Închide">×</button></div>
+  <script>
+    let audio = null, dismiss = null;
+    const beep = (freq, start, dur, vol, type) => {
+      const o = audio.createOscillator(), g = audio.createGain(); o.type = type || 'sine'; o.frequency.value = freq;
+      g.gain.setValueAtTime(.0001, audio.currentTime + start); g.gain.exponentialRampToValueAtTime(Math.max(.0002, vol), audio.currentTime + start + .02); g.gain.exponentialRampToValueAtTime(.0001, audio.currentTime + start + dur);
+      o.connect(g); g.connect(audio.destination); o.start(audio.currentTime + start); o.stop(audio.currentTime + start + dur + .05);
+    };
+    function play(n) {
+      if (!n.sound || !(n.volume > 0)) return;
+      try {
+        audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume();
+        const v = .25 * n.volume, up = ['boostStart','achStart','webOn','webLink','loginOk','appStart'];
+        const down = ['boostStop','achStop','webOff','sessionEnd'];
+        if (n.level === 'bad') { beep(330,0,.16,v,'square'); beep(247,.18,.16,v,'square'); beep(330,.36,.2,v,'square'); }
+        else if (up.includes(n.key) || n.key === 'test') { beep(523,0,.12,v); beep(659,.11,.12,v); beep(784,.22,.2,v); }
+        else if (down.includes(n.key)) { beep(784,0,.12,v); beep(659,.11,.12,v); beep(523,.22,.2,v); }
+        else { beep(659,0,.12,v); beep(880,.12,.22,v); }
+      } catch {}
+    }
+    window.updateNotification = (n) => {
+      document.getElementById('title').textContent = n.title || 'Wella Hub';
+      document.getElementById('body').textContent = n.body || '';
+      document.getElementById('card').className = 'card ' + (n.level || 'info');
+      play(n);
+      clearTimeout(dismiss); dismiss = setTimeout(() => window.close(), 8000);
+    };
+    document.getElementById('close').addEventListener('click', () => window.close());
+    try { const raw = new URLSearchParams(location.search).get('data'); if (raw) window.updateNotification(JSON.parse(raw)); else window.close(); } catch { window.close(); }
+  </script>
+</body>
+</html>

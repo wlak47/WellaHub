@@ -3,7 +3,7 @@
   const BASE_HUE = 273; // hue of the purple in the logo; the logo is rotated from here to the accent hue
   const PINK_PAL = { bg0: '#070307', panel0: '#100810', panel20: '#170b17', line0: '#2e1229', line2: '#4a1b40', text: '#fff0f7', mut: '#b07a9c', chip: '#140a14', chip2: '#1b0d1b', chip3: '#221024', hover: '#150915', modal: '#0b050b', sec: '#0e060e', faint: '#5a2850' };
   const def = { mode: 'dark', accent: '#ff3d9a', tint: false, btn: '', start: '#3ddc97', stop: '#ff4d6d', fx: true, toastShape: 'pill',
-    font: 'ui', radius: -1, scale: 100, glow: true, scan: false, nomo: false, compact: false, pal: PINK_PAL, preset: 'default' };
+    font: 'ui', radius: -1, scale: 100, glow: true, scan: false, nomo: false, compact: false, sfull: true, good: '', bad: '', warn: '', glowc: '', sel: '', scrollc: '', pal: PINK_PAL, preset: 'default' };
   const isHex = (v) => /^#[0-9a-fA-F]{6}$/.test(v || '');
   const PAL_KEYS = ['bg0', 'panel0', 'panel20', 'line0', 'line2', 'text', 'mut', 'chip', 'chip2', 'chip3', 'hover', 'modal', 'sec', 'faint'];
   const FONTS = {
@@ -19,7 +19,57 @@
     ,times: { name: 'Times New Roman', css: '"Times New Roman",Times,serif' }
     ,courier: { name: 'Courier New', css: '"Courier New",Courier,monospace' }
     ,comic: { name: 'Comic Sans', css: '"Comic Sans MS",cursive,sans-serif' }
+    // more fonts: shown only when they are installed on this PC (fam = the family that is checked)
+    ,system: { name: 'System UI', css: 'system-ui,"Segoe UI",sans-serif', fam: 'system-ui', always: true }
+    ,segvar: { name: 'Segoe UI Variable', css: '"Segoe UI Variable Text","Segoe UI",sans-serif', fam: 'Segoe UI Variable Text' }
+    ,calibri: { name: 'Calibri', css: 'Calibri,"Segoe UI",sans-serif', fam: 'Calibri' }
+    ,candara: { name: 'Candara', css: 'Candara,"Segoe UI",sans-serif', fam: 'Candara' }
+    ,corbel: { name: 'Corbel', css: 'Corbel,"Segoe UI",sans-serif', fam: 'Corbel' }
+    ,century: { name: 'Century Gothic', css: '"Century Gothic","Segoe UI",sans-serif', fam: 'Century Gothic' }
+    ,franklin: { name: 'Franklin Gothic', css: '"Franklin Gothic Medium","Segoe UI",sans-serif', fam: 'Franklin Gothic Medium' }
+    ,gill: { name: 'Gill Sans', css: '"Gill Sans MT","Gill Sans","Segoe UI",sans-serif', fam: 'Gill Sans MT' }
+    ,lucida: { name: 'Lucida Sans', css: '"Lucida Sans Unicode","Lucida Grande","Segoe UI",sans-serif', fam: 'Lucida Sans Unicode' }
+    ,bahn: { name: 'Bahnschrift', css: 'Bahnschrift,"Segoe UI",sans-serif', fam: 'Bahnschrift' }
+    ,helv: { name: 'Helvetica Neue', css: '"Helvetica Neue",Helvetica,Arial,sans-serif', fam: 'Helvetica Neue' }
+    ,cambria: { name: 'Cambria', css: 'Cambria,Georgia,serif', fam: 'Cambria' }
+    ,constantia: { name: 'Constantia', css: 'Constantia,Georgia,serif', fam: 'Constantia' }
+    ,garamond: { name: 'Garamond', css: 'Garamond,"Palatino Linotype",serif', fam: 'Garamond' }
+    ,bookman: { name: 'Bookman Old Style', css: '"Bookman Old Style",Georgia,serif', fam: 'Bookman Old Style' }
+    ,rockwell: { name: 'Rockwell', css: 'Rockwell,Georgia,serif', fam: 'Rockwell' }
+    ,sylfaen: { name: 'Sylfaen', css: 'Sylfaen,Georgia,serif', fam: 'Sylfaen' }
+    ,cascadia: { name: 'Cascadia Code', css: '"Cascadia Code","Cascadia Mono",Consolas,monospace', fam: 'Cascadia Code' }
+    ,consolas: { name: 'Consolas', css: 'Consolas,"Courier New",monospace', fam: 'Consolas' }
+    ,lucidacon: { name: 'Lucida Console', css: '"Lucida Console",Consolas,monospace', fam: 'Lucida Console' }
+    ,segprint: { name: 'Segoe Print', css: '"Segoe Print","Comic Sans MS",cursive', fam: 'Segoe Print' }
+    ,segscript: { name: 'Segoe Script', css: '"Segoe Script","Brush Script MT",cursive', fam: 'Segoe Script' }
+    ,inkfree: { name: 'Ink Free', css: '"Ink Free","Segoe Print",cursive', fam: 'Ink Free' }
+    ,brush: { name: 'Brush Script', css: '"Brush Script MT","Segoe Script",cursive', fam: 'Brush Script MT' }
+    ,copper: { name: 'Copperplate Gothic', css: '"Copperplate Gothic Bold","Copperplate",fantasy', fam: 'Copperplate Gothic Bold' }
+    ,papyrus: { name: 'Papyrus', css: 'Papyrus,fantasy', fam: 'Papyrus' }
+    ,arialblack: { name: 'Arial Black', css: '"Arial Black","Arial Bold",sans-serif', fam: 'Arial Black' }
+    ,haettenschweiler: { name: 'Haettenschweiler', css: 'Haettenschweiler,Impact,sans-serif', fam: 'Haettenschweiler' }
+    ,stencil: { name: 'Stencil', css: 'Stencil,Impact,fantasy', fam: 'Stencil' }
+    ,gabriola: { name: 'Gabriola', css: 'Gabriola,"Segoe Script",cursive', fam: 'Gabriola' }
   };
+  // is this family installed? (a canvas measures a test text with the font and with 3 fallbacks: different width = the font exists)
+  const probe = {};
+  let cvx = null;
+  function fontOk(id) {
+    const f = FONTS[id]; if (!f) return false;
+    if (!f.fam || f.always) return true;
+    if (f.fam in probe) return probe[f.fam];
+    let ok = true;
+    try {
+      cvx = cvx || document.createElement('canvas').getContext('2d');
+      const txt = 'mmmmmmmmmmlliWwQq0123@#';
+      ok = false;
+      for (const base of ['monospace', 'serif', 'sans-serif']) {
+        cvx.font = '64px ' + base; const w0 = cvx.measureText(txt).width;
+        cvx.font = '64px "' + f.fam + '",' + base; if (cvx.measureText(txt).width !== w0) { ok = true; break; }
+      }
+    } catch { ok = true; }
+    probe[f.fam] = ok; return ok;
+  }
 
   // Ready-made themes for the gallery. "pal" repaints the neutral colours (backgrounds, panels, lines, text); "bg" picks a built-in background.
   const P = (o) => o;
@@ -88,6 +138,7 @@
     s.setProperty('--btn', btn);      s.setProperty('--onbtn', onColor(btn));
     s.setProperty('--start', start);  s.setProperty('--onstart', onColor(start));
     s.setProperty('--stop', stop);    s.setProperty('--onstop', onColor(stop));
+    for (const [k, v] of [['good', '--green'], ['bad', '--bad'], ['warn', '--warn'], ['glowc', '--glowc'], ['sel', '--sel'], ['scrollc', '--scroll']]) { if (isHex(t[k])) s.setProperty(v, t[k]); else s.removeProperty(v); }   // extra colours: empty = the normal one
     s.setProperty('--logo-filter', logoFilter(accent));
     s.setProperty('--logo-hue', ((hueOf(accent) - BASE_HUE + 360) % 360) + 'deg');
     el.classList.toggle('tint', !!t.tint);
@@ -102,14 +153,17 @@
     if (Number.isFinite(rad) && rad >= 0) { s.setProperty('--rad', Math.min(30, rad) + 'px'); el.classList.add('radc'); } else { s.removeProperty('--rad'); el.classList.remove('radc'); }
     const sc = Number(t.scale);
     s.zoom = Number.isFinite(sc) && sc >= 80 && sc <= 130 && sc !== 100 ? String(sc / 100) : '';
+    s.setProperty('--z', s.zoom || '1');                            // so full-window things can divide the zoom out (100vw / --z)
     el.classList.toggle('glow', !!t.glow);
     el.classList.toggle('scan', !!t.scan);
     el.classList.toggle('nomo', !!t.nomo);
     el.classList.toggle('compact', !!t.compact);
+    el.classList.toggle('sfull', t.sfull !== false);          // the Settings window fills the whole app window
   }
   let cur = read(), pushT = null;
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cur)); } catch {} };
-  const push = () => { // the theme is shared: phone and PC always look the same
+  const push = () => { // Admin Panel appearance is local-only and must not alter the regular user app.
+    if (window.__WELLA_WEB && document.body && document.body.classList.contains('admin-panel')) return;
     clearTimeout(pushT);
     pushT = setTimeout(() => { try { if (window.api && window.api.setTheme) window.api.setTheme(cur); } catch {} }, 250);
   };
@@ -117,13 +171,14 @@
   window.WellaTheme = {
     defaults: { ...def },
     fonts: FONTS,
+    fontOk,
     presets: PRESETS,
     get: () => ({ ...cur }),
     set(patch) { cur = { ...cur, ...patch }; apply(cur); save(); push(); },
     // a gallery theme: colours, fonts, shape and effects + its background
     preset(id) {
       const p = PRESETS.find((x) => x.id === id); if (!p) return false;
-      cur = { ...def, tint: false, toastShape: cur.toastShape, scale: cur.scale, nomo: cur.nomo, compact: cur.compact, ...p.theme, preset: id };
+      cur = { ...def, tint: false, toastShape: cur.toastShape, scale: cur.scale, nomo: cur.nomo, compact: cur.compact, sfull: cur.sfull, ...p.theme, preset: id };
       apply(cur); save(); push();
       try { if (window.WellaBg && p.bg) window.WellaBg.set({ ...(window.WellaBg.defaults || {}), ...p.bg }); } catch {}
       return true;

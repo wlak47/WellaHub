@@ -55,13 +55,15 @@
     const goTab = (t) => go(() => setTab(t));
     const sub = (k, label) => out.push({ k: 'Utility', t: label, a: go(() => { US.sub = k; if (tab !== 'util') setTab('util'); else paintUtilPage(); else_(); }) });
     const else_ = () => { if (tab === 'util') paintUtilPage(); };
-    out.push({ k: 'Tab', t: 'Hour Booster', a: goTab('boost') }, { k: 'Tab', t: 'Achievement Manager', a: goTab('ach') }, { k: 'Tab', t: 'Utility', a: goTab('util') });
+    if (!document.getElementById('tabDash').classList.contains('hidden')) out.push({ k: 'Tab', t: 'Dashboard', a: goTab('dash') });
+    out.push({ k: 'Tab', t: 'Hour Booster', a: goTab('boost') }, { k: 'Tab', t: 'Utility', a: goTab('util') });
+    if (!document.getElementById('tabAch').classList.contains('hidden')) out.push({ k: 'Tab', t: 'Achievement Manager', a: goTab('ach') });
     if (!document.getElementById('tabFree').classList.contains('hidden')) out.push({ k: 'Tab', t: 'Free Games', a: goTab('free') });
     if (!document.getElementById('tabPc').classList.contains('hidden')) out.push({ k: 'Tab', t: 'Monitor', a: goTab('pcmon') });
     if (!document.getElementById('tabFps').classList.contains('hidden')) out.push({ k: 'Tab', t: 'FPS Monitor', a: goTab('fps') });
     if (!document.getElementById('tabRemote').classList.contains('hidden')) out.push({ k: 'Tab', t: 'Remote PC', a: goTab('remote') });
-    for (const [k, l] of [['players', 'Player stats'], ['pcmp', 'Compare players'], ['hist', 'Rank history'], ['compare', 'Profile Compare'], ['inv', 'Inventory'], ['health', 'Account Health'], ['badge', 'Badges'], ['sale', 'Steam sales'], ['daily', 'Daily report'], ['pchealth', 'PC health'], ['pass', 'Password Generator'], ['speed', 'Speed Test'], ['hook', 'Webhook'], ['yt', 'YouTube'], ['pace', 'Timings']]) sub(k, l);
-    for (const [k, l] of [['general', 'Settings: General, themes & language'], ['discord', 'Settings: Discord'], ['remote', 'Settings: Web access']]) out.push({ k: 'Settings', t: l, a: go(() => { settingsTab = k; openSettings(); }) });
+    for (const [k, l] of [['players', 'Player stats'], ['pcmp', 'Compare players'], ['hist', 'Rank history'], ['compare', 'Profile Compare'], ['inv', 'Inventory'], ['health', 'Account Health'], ['badge', 'Badges'], ['sale', 'Steam sales'], ['daily', 'Daily report'], ['pchealth', 'PC health'], ['pass', 'Password Generator'], ['speed', 'Speed Test'], ['yt', 'YouTube'], ['pace', 'Timings']]) sub(k, l);
+    for (const [k, l] of [['general', 'Settings: General, themes & language'], ['discord', 'Settings: Discord'], ['accounts', 'Settings: Discord accounts'], ['remote', 'Settings: Web access']]) out.push({ k: 'Settings', t: l, a: go(() => { settingsTab = k; openSettings(); }) });
     for (const p of window.WellaTheme.presets) out.push({ k: 'Theme', t: p.name, a: go(() => { window.WellaTheme.preset(p.id); toast('Theme: ' + p.name, 'ok'); }) });
     out.push({ k: 'Action', t: 'Start all accounts', a: go(() => window.api.startAll()) }, { k: 'Action', t: 'Stop all accounts', a: go(() => window.api.stopAll()) },
       { k: 'Action', t: 'Add account', a: go(() => { setTab('boost'); openAdd(); }) },
@@ -120,34 +122,105 @@
   X.tutorial = (force) => {
     try { if (!force && localStorage.getItem(TUT_KEY)) return; } catch {}
     if (tut) tut.remove();
-    const steps = [
-      { sel: '.tab[data-tab="boost"]', t: 'Hour Booster', d: 'Add your Steam accounts, pick up to 32 games per account and press Start. The hours go up while the games idle. Card drops, badges and the Start all / Stop all buttons are here too.' },
-      { sel: '.tab[data-tab="ach"]', t: 'Achievement Manager', d: 'Choose an account and a game, then lock or unlock achievements one by one or in bulk. \u201cSelect games with missing achievements\u201d finds what you still miss. Timings are in Utility > Timings.' },
-      { sel: '#tabUtil', t: 'Utility', d: 'Player stats and compare, rank history graph, inventory, account health, Steam sales countdown, badge crafting, daily report, PC health check, Discord webhook and the YouTube downloader.' },
-      { sel: '#gear', t: 'Settings', d: 'Themes, backgrounds, language, notifications, Discord status and web access from your phone. Press Ctrl+K at any time to search any account, game, tool or setting.' }
+    const tabEl = (n) => document.querySelector(`.tab[data-tab="${n}"]`);
+    const tabOn = (n) => { const e = tabEl(n); return !!e && !e.classList.contains('hidden') && e.getClientRects().length > 0; };
+    // every step goes to the screen where its button lives (go), then points at the real button (sel) and explains it
+    const all = [
+      { go: 'dash', sel: '#tabDash', t: 'Dashboard: all your accounts at once', d: 'Press this tab to see every account on ONE page. At the top are the totals: Steam hours (all time), boosted hours, hours today, cards left, games owned. Below it each account has its own card with a Start / Stop button, the games it is boosting and its card drops. The History button shows the hours boosted day by day. You can hide this tab in Settings > Tabs.' },
+      { go: 'boost', sel: '.addbtn', t: 'Add a Steam account', d: 'This round + button (left side) adds an account. Choose how to sign in: username + password (Steam may ask for the Steam Guard code from your phone or email) or scan the QR code with the Steam app on your phone. Wella Hub keeps a login token on this PC so you do not have to type the password again. Every account you add shows up as a round picture in this column; click one to open it.' },
+      { go: 'boost', sel: '#cards .icon[title="Choose games"]', t: 'Choose the games to boost', d: 'The pencil on an account card opens the game list of that account. Tick the games that should collect hours (up to 32 per account, because Steam only counts 32 running games at once). Use the star to mark favourites so they are always at the top. The ones you ticked appear in the list under the account, with the hours you have on Steam and the hours you boosted.' },
+      { go: 'boost', sel: '.head-actions', t: 'Start, stop and rotate', d: 'Start all begins boosting on every account, Stop all stops them (each account also has its own Start / Stop on its card). Rotate games swaps the running games every 10 minutes so more of your library gets hours. Find game searches one game across all your accounts. The green dot on an account picture means its booster really runs, red means it is stopped.' },
+      { go: 'ach', sel: '.tab[data-tab="ach"]', t: 'Achievement Manager', d: 'Pick an account and a game, then lock or unlock achievements one by one or all at once. “Select games with missing achievements” finds the games where you still miss some. It needs the game to have achievements and the account to own it. The delays between unlocks can be changed in Utility > Timings.' },
+      { go: 'free', sel: '#tabFree', t: 'Free Games', d: 'Browse games shows free-to-play games, demos, DLC and software you can add to an account with one click. Auto discovery does it for you: 1) choose the accounts, 2) switch on what to add (free-to-play, other free games, demos, DLC, software, new releases, 100% off giveaways), 3) press Start. It paces itself so Steam does not block it, and each account shows what it is doing (adding, waiting or resting).' },
+      { go: 'util', sel: '#tabUtil', t: 'Utility: the toolbox', d: 'Many small tools in one place: Player stats and Profile Compare (look up any Steam player), Inventory (CS2, Dota 2, TF2, Rust), Account Health (bans, limits), Badges, Steam sales countdown, Rank history, Daily report, Password Generator, Speed Test, PC health, a YouTube downloader and Timings. Pick one from the row of buttons at the top of the page.' },
+      { go: '', sel: ['.srch', '#gear'], t: 'Search and Settings', d: 'The magnifier (or Ctrl+K anywhere) searches every account, game, tool and setting and jumps straight to it. The gear opens Settings: General (startup, API keys, which tabs to show, the mini widget, notifications), Appearance (Themes, Colors, Background, Fonts and layout), Discord and Web access from your phone. You can open this tutorial again from Settings > Appearance > Settings.' }
     ];
-    let i = 0;
+    const steps = all.filter((s) => !s.go || tabOn(s.go));
+    const startTab = (document.querySelector('.tab.active') || {}).dataset ? document.querySelector('.tab.active').dataset.tab : '';
+    let i = 0, run = 0;
     tut = h('div', { class: 'tut' });
-    const finish = () => { try { localStorage.setItem(TUT_KEY, '1'); } catch {} if (tut) tut.remove(); tut = null; window.removeEventListener('resize', place); };
-    const ring = h('div', { class: 'tut-ring' }), card = h('div', { class: 'tut-card' });
-    tut.append(ring, card);
-    function place() {
-      if (!tut) return;
-      const s = steps[i];
-      let el = document.querySelector(s.sel);
-      if (!el || el.classList.contains('hidden') || !el.offsetParent) el = document.querySelector('.top');
-      const r = el.getBoundingClientRect(), pad = 6;
-      ring.style.cssText = `left:${r.left - pad}px;top:${r.top - pad}px;width:${r.width + pad * 2}px;height:${r.height + pad * 2}px`;
-      const w = 340, left = Math.max(12, Math.min(window.innerWidth - w - 12, r.left + r.width / 2 - w / 2));
-      card.style.cssText = `left:${left}px;top:${Math.min(window.innerHeight - 220, r.bottom + 18)}px;width:${w}px`;
-      card.replaceChildren(h('small', { class: 'tut-n' }, `${i + 1} / ${steps.length}`), h('b', {}, s.t), h('p', {}, s.d),
-        h('div', { class: 'tut-act' }, h('button', { class: 'btn text sm', onclick: finish }, 'Skip'),
-          h('span', { style: 'flex:1' }),
-          i ? h('button', { class: 'btn ghost sm', onclick: () => { i--; place(); } }, 'Back') : null,
-          h('button', { class: 'btn red sm', onclick: () => { if (i < steps.length - 1) { i++; place(); } else finish(); } }, i < steps.length - 1 ? 'Next' : 'Got it')));
+    const ring = h('div', { class: 'tut-ring' }), card = h('div', { class: 'tut-card' }), arrow = h('i', { class: 'tut-arrow' });
+    const probe = h('div', { style: 'position:fixed;left:0;top:0;width:100px;height:100px;visibility:hidden;pointer-events:none' });
+    tut.append(ring, card, probe);
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const shown = (e) => !!e && !e.classList.contains('hidden') && e.getClientRects().length > 0;
+    const finish = () => {
+      try { localStorage.setItem(TUT_KEY, '1'); } catch {}
+      if (tut) tut.remove(); tut = null; run++;
+      window.removeEventListener('resize', onResize); document.removeEventListener('keydown', onKey);
+      const back = startTab && tabEl(startTab); if (back && !back.classList.contains('active')) back.click();
+    };
+    const go = (n) => { if (n < 0 || n >= steps.length) return; i = n; show(); };
+    function build(s) {
+      card.replaceChildren(arrow,
+        h('div', { class: 'tut-dots' }, steps.map((_, k) => h('button', { class: 'tut-dot' + (k === i ? ' on' : k < i ? ' done' : ''), title: `Step ${k + 1}`, onclick: () => go(k) }))),
+        h('small', { class: 'tut-n' }, `Step ${i + 1} of ${steps.length}`), h('b', {}, s.t), h('p', {}, s.d),
+        h('div', { class: 'tut-act' }, h('button', { class: 'btn text sm', onclick: finish }, 'Skip'), h('span', { style: 'flex:1' }),
+          i ? h('button', { class: 'btn ghost sm', onclick: () => go(i - 1) }, 'Back') : null,
+          h('button', { class: 'btn red sm', onclick: () => { if (i < steps.length - 1) go(i + 1); else finish(); } }, i < steps.length - 1 ? 'Next' : 'Got it')));
     }
-    document.body.append(tut); place(); window.addEventListener('resize', place);
-    document.addEventListener('keydown', function esc(e) { if (!tut) { document.removeEventListener('keydown', esc); return; } if (e.key === 'Escape') { finish(); document.removeEventListener('keydown', esc); } else if (e.key === 'ArrowRight' || e.key === 'Enter') { if (i < steps.length - 1) { i++; place(); } else { finish(); document.removeEventListener('keydown', esc); } } else if (e.key === 'ArrowLeft' && i) { i--; place(); } });
+    // measure and place: the ring on the button, the card on the free side (never over the button)
+    function place(el) {
+      if (!tut) return;
+      const f = (probe.getBoundingClientRect().width / 100) || 1;                         // style px -> screen px (the Interface size zoom)
+      const vw = window.innerWidth / f, vh = window.innerHeight / f, M = 12, GAP = 22, PAD = 8;
+      const els = (Array.isArray(el) ? el : [el]).filter(Boolean);
+      let T = null;
+      if (els.length) {
+        const rs = els.map((e) => e.getBoundingClientRect());
+        T = { l: Math.min(...rs.map((r) => r.left)) / f - PAD, t: Math.min(...rs.map((r) => r.top)) / f - PAD, r: Math.max(...rs.map((r) => r.right)) / f + PAD, b: Math.max(...rs.map((r) => r.bottom)) / f + PAD };
+      }
+      tut.classList.toggle('noring', !T);
+      if (T) ring.style.cssText = `left:${T.l}px;top:${T.t}px;width:${T.r - T.l}px;height:${T.b - T.t}px`;
+      card.style.cssText = `left:0;top:0;visibility:hidden;width:${Math.min(380, vw - 2 * M)}px`;           // measured at its real width
+      const cr = card.getBoundingClientRect(), cw = cr.width / f, ch = cr.height / f;
+      let left = (vw - cw) / 2, top = (vh - ch) / 2, side = '';
+      if (T) {
+        const cx = (T.l + T.r) / 2, cy = (T.t + T.b) / 2, clampX = (x) => Math.max(M, Math.min(vw - cw - M, x)), clampY = (y) => Math.max(M, Math.min(vh - ch - M, y));
+        const opts = [
+          { s: 'below', room: vh - T.b - GAP - M, need: ch, x: clampX(cx - cw / 2), y: T.b + GAP },
+          { s: 'above', room: T.t - GAP - M, need: ch, x: clampX(cx - cw / 2), y: T.t - GAP - ch },
+          { s: 'right', room: vw - T.r - GAP - M, need: cw, x: T.r + GAP, y: clampY(cy - ch / 2) },
+          { s: 'left', room: T.l - GAP - M, need: cw, x: T.l - GAP - cw, y: clampY(cy - ch / 2) }
+        ];
+        const fits = opts.filter((o) => o.room >= o.need).sort((a, b) => b.room - a.room);
+        const pick = fits[0] || null;
+        if (pick) { left = pick.x; top = pick.y; side = pick.s; }
+        else {                                                                              // not enough room anywhere: the corner with the most free space, away from the button
+          const corners = [[M, M], [vw - cw - M, M], [M, vh - ch - M], [vw - cw - M, vh - ch - M]];
+          const free = corners.map(([x, y]) => ({ x, y, hit: !(x + cw < T.l || x > T.r || y + ch < T.t || y > T.b) }));
+          const best = free.find((c) => !c.hit) || free[0]; left = best.x; top = best.y;
+        }
+      }
+      card.style.cssText = `left:${left}px;top:${top}px;width:${Math.min(380, vw - 2 * M)}px`;
+      card.dataset.side = side;
+      if (T && side) {                                                                       // the little arrow points at the button
+        const cx = (T.l + T.r) / 2, cy = (T.t + T.b) / 2;
+        if (side === 'below' || side === 'above') arrow.style.cssText = `left:${Math.max(20, Math.min(cw - 20, cx - left)) - 7}px;top:auto;`;
+        else arrow.style.cssText = `top:${Math.max(20, Math.min(ch - 20, cy - top)) - 7}px;left:auto;`;
+      } else arrow.style.cssText = 'display:none';
+    }
+    async function show() {
+      const me = ++run, s = steps[i];
+      card.classList.add('moving'); build(s);
+      if (s.go) { const tb = tabEl(s.go); if (tb && !tb.classList.contains('active')) { tb.click(); await wait(520); } }
+      if (me !== run || !tut) return;
+      const find = () => { const found = (Array.isArray(s.sel) ? s.sel : [s.sel]).map((q) => document.querySelector(q)).filter(shown); return found.length ? found : null; };
+      let el = find();
+      for (let k = 0; !el && k < 12; k++) { await wait(120); if (me !== run || !tut) return; el = find(); }
+      if (el) { try { const e0 = el[0]; if (!getComputedStyle(e0).position.includes('fixed')) e0.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' }); } catch {} await wait(160); if (me !== run || !tut) return; }
+      place(el); card.classList.remove('moving');
+      setTimeout(() => { if (me === run && tut) place(find()); }, 650);                    // once more after the screen animations are over
+    }
+    const onResize = () => { if (tut) place((Array.isArray(steps[i].sel) ? steps[i].sel : [steps[i].sel]).map((q) => document.querySelector(q)).filter(shown)); };
+    const onKey = (e) => {
+      if (!tut) return;
+      if (e.key === 'Escape') finish();
+      else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); if (i < steps.length - 1) go(i + 1); else finish(); }
+      else if (e.key === 'ArrowLeft') go(i - 1);
+    };
+    if (!steps.length) { tut = null; return; }
+    document.body.append(tut); show(); window.addEventListener('resize', onResize); document.addEventListener('keydown', onKey);
   };
   (function autoTutorial() {
     let n = 0;
@@ -169,7 +242,7 @@
     box.append(head, h('div', { class: 'csec-body' }, ...kids.filter(Boolean)));
     return box;
   };
-  X.lookTab = (draw) => {
+  X.lookTab = (draw, cat) => {
     const T = window.WellaTheme, B = window.WellaBg, L = window.WellaI18n;
     const t = T.get();
     const slider = (label, min, max, val, unit, onset, onchange) => {
@@ -186,7 +259,15 @@
         h('b', {}, p.name), h('small', {}, p.note));
     }));
     const fontPreview = h('div', { class: 'font-preview', style: T.fonts[t.font || 'ui'] && T.fonts[t.font || 'ui'].css ? `font-family:${T.fonts[t.font || 'ui'].css}` : '' }, h('small', {}, 'Preview'), h('b', {}, 'The quick brown fox jumps over the lazy dog'), h('span', {}, '0123456789 · Wella Hub · Free Games'));
-    const fontSel = h('select', { class: 'in', onchange: (e) => { T.set({ font: e.target.value, preset: '' }); const f = T.fonts[e.target.value]; fontPreview.style.fontFamily = f && f.css || ''; } }, Object.entries(T.fonts).map(([k, f]) => h('option', { value: k, selected: (t.font || 'ui') === k ? 'selected' : null }, f.name)));
+    const curFont = () => (window.WellaTheme.get().font || 'ui');
+    const fontIds = Object.keys(T.fonts).filter((k) => k === curFont() || T.fontOk(k));
+    const fontSel = h('div', { class: 'fontgrid' }, fontIds.map((k) => {
+      const f = T.fonts[k], fam = f.css || '"Segoe UI",sans-serif';
+      return h('button', { type: 'button', class: 'fontcard' + (curFont() === k ? ' on' : ''), 'data-f': k, title: f.name, style: `font-family:${fam}`, onclick: () => {
+        T.set({ font: k, preset: '' }); fontPreview.style.fontFamily = f.css || '';
+        fontSel.querySelectorAll('.fontcard').forEach((c) => c.classList.toggle('on', c.dataset.f === k));
+      } }, h('span', { class: 'fc-aa' }, 'Aa'), h('span', { class: 'fc-name' }, f.name), h('span', { class: 'fc-smp' }, 'The quick brown fox 0123456789'));
+    }));
     const langSel = h('select', { class: 'in', onchange: (e) => { L.setLang(e.target.value); window.api.setPrefs({ uiLang: e.target.value }).catch(() => {}); feat('setLang', e.target.value).catch(() => {}); draw(); } },
       [['en', 'English'], ['ro', 'Rom\u00e2n\u0103'], ['es', 'Español'], ['fr', 'Français'], ['de', 'Deutsch'], ['ru', 'Русский']].map(([k, n]) => h('option', { value: k, selected: L.lang() === k ? 'selected' : null }, n)));
     let savedThemes = [];
@@ -202,22 +283,26 @@
       try { const r = await window.api.saveCustomTheme({ name: customName.value, theme: T.get(), bg: B.get() }); if (r.error) throw new Error(r.error); savedThemes = r.themes || []; paintCustomThemes(); toast('Theme saved: ' + customName.value.trim(), 'ok'); }
       catch (e) { fail(e); }
     } }, 'Save current theme');
-    return [
+    const sets = [
       h('div', { class: 'setrow' }, h('b', {}, 'Language'), langSel),
-      h('div', { class: 'bgsec' }, h('b', {}, 'Theme gallery'), gallery),
-      h('div', { class: 'bgsec' }, h('b', {}, 'My saved themes'), h('small', { style: muted }, 'Save the current colors, font, layout and background with your own name.'), h('div', { class: 'lk' }, customName, customSave), customList),
-      h('div', { class: 'bgsec' }, h('b', {}, 'Customize'),
-        h('div', { class: 'setrow' }, h('b', {}, 'Font'), fontSel), fontPreview,
-        slider('Corner roundness', 0, 30, t.radius >= 0 ? t.radius : 12, ' px', (v) => T.set({ radius: v, preset: '' })),
-        h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: () => { T.set({ radius: -1, preset: '' }); draw(); } }, 'Default corners')),
-        slider('Interface size', 80, 130, t.scale || 100, ' %', () => {}, (e) => { T.set({ scale: +e.target.value }); }),
-        sw('Glow (soft light around buttons and cards)', 'glow'), sw('Scanlines (retro screen)', 'scan'), sw('Compact layout (less space between things)', 'compact'),
-        sw('Reduce motion (no animations)', 'nomo')),
+      chkRow('Settings window fills the whole app window', t.sfull !== false, (v) => T.set({ sfull: v }), 'The Settings window takes the whole size of the app window (and follows it when you resize) and everything inside it gets bigger.'),
+      slider('Corner roundness', 0, 30, t.radius >= 0 ? t.radius : 12, ' px', (v) => T.set({ radius: v, preset: '' })),
+      h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: () => { T.set({ radius: -1, preset: '' }); draw(); } }, 'Default corners')),
+      slider('Interface size', 80, 130, t.scale || 100, ' %', () => {}, (e) => { T.set({ scale: +e.target.value }); }),
+      sw('Glow (soft light around buttons and cards)', 'glow'), sw('Scanlines (retro screen)', 'scan'), sw('Compact layout (less space between things)', 'compact'),
+      sw('Reduce motion (no animations)', 'nomo'),
+      chkRow('Animations', t.fx !== false, (v) => T.set({ fx: v })),
       h('div', { class: 'sbtns' },
         h('button', { class: 'btn ghost', onclick: () => { T.preset('default'); toast('Look reset', 'ok'); draw(); } }, 'Reset the look'),
         h('button', { class: 'btn ghost', onclick: () => { closeModal(); setTimeout(() => X.tutorial(true), 250); } }, 'Show the tutorial'),
         h('button', { class: 'btn ghost', onclick: () => X.hiddenManager() }, 'Hidden games'))
     ];
+    const themes = [
+      h('div', { class: 'bgsec' }, h('b', {}, 'Theme gallery'), gallery),
+      h('div', { class: 'bgsec' }, h('b', {}, 'My saved themes'), h('small', { style: muted }, 'Save the current colors, font, layout and background with your own name.'), h('div', { class: 'lk' }, customName, customSave), customList)
+    ];
+    const fonts = [h('div', { class: 'setrow' }, h('b', {}, 'Font (click one to see it and use it)'), fontSel), fontPreview];
+    return ({ themes, fonts, settings: sets })[cat || 'themes'] || themes;
   };
   // extra background controls (called from bgSection)
   X.bgExtra = (draw) => {
@@ -371,7 +456,7 @@
           h('button', { class: 'btn red sm', disabled: BS.busy ? 'disabled' : null, onclick: () => { if (confirm('Craft every complete set now? The cards are used up and this cannot be undone.')) run(false); } }, 'Craft now'))),
         resBox,
         st.log && st.log.length ? h('div', { class: 'ublk' }, h('b', {}, 'Recently crafted'), st.log.slice(0, 12).map((l) => h('div', { class: 'itop' }, h('span', {}, `${l.game} \u00b7 ${l.acc}`), h('b', {}, `level ${l.from} \u2192 ${l.to} \u00b7 ${new Date(l.t).toLocaleDateString(uiLocale())}`)))) : null,
-        hint('A message goes to the Discord webhook when badges are crafted (Utility > Webhook).'));
+        hint('A message goes to the Discord webhook when badges are crafted (Discord webhook (configured on this PC)).'));
       paintRes();
     };
     call('get').then((r) => { st = r.badge; paint(); }).catch((e) => box.replaceChildren(hint(e.message)));
@@ -434,7 +519,7 @@
       const upd = async (p) => { try { st = await call('dailySet', p); } catch (e) { fail(e); } paint(); };
       const time = h('input', { class: 'in', type: 'time', value: `${String(st.hour).padStart(2, '0')}:${String(st.minute).padStart(2, '0')}`, style: 'width:140px', onchange: (e) => { const m = /^(\d\d):(\d\d)$/.exec(e.target.value); if (m) upd({ hour: +m[1], minute: +m[2] }); } });
       box.replaceChildren(
-        chkRow('Send a summary to Discord every day', st.on, (v) => upd({ on: v }), 'Hours boosted, trading cards dropped, achievements unlocked and badges crafted today, per account. Needs a webhook (Utility > Webhook).'),
+        chkRow('Send a summary to Discord every day', st.on, (v) => upd({ on: v }), 'Hours boosted, trading cards dropped, achievements unlocked and badges crafted today, per account. Needs a webhook (Discord webhook (configured on this PC)).'),
         h('div', { class: 'setrow' }, h('b', {}, 'Send at'), time, hint('If the PC was off at that time, it is sent when Wella Hub starts later the same day.')),
         h('div', { class: 'sbtns' },
           h('button', { class: 'btn ghost sm', onclick: async () => { try { pv = await call('dailyPreview'); } catch (e) { fail(e); } paint(); } }, 'Preview today'),

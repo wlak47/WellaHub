@@ -4,19 +4,25 @@ const uiLocale = () => window.WellaI18n ? window.WellaI18n.locale() : 'en-US';
 let accounts = [];
 let gameRotationOn = false;
 let installedAppIds = new Set(), installedAppsAt = 0, installedAppsRequest = null;
-const steamGameHours = new Map(), steamGameHoursPending = new Set();
+const steamGameHours = new Map(), steamGameHoursPending = new Set(), steamGameHoursAt = new Map();
 let view = 'all'; // 'all' or account id
 
+function paintSteamHours(accountId) {
+  const hours = steamGameHours.get(accountId) || {};
+  document.querySelectorAll(`[data-steam-hours-account="${CSS.escape(accountId)}"]`).forEach((el) => {
+    const value = hours[el.dataset.steamHoursAppid];
+    el.textContent = value == null ? '\u2014' : Number(value).toLocaleString(uiLocale(), { maximumFractionDigits: 1 });
+  });
+}
 function loadSteamGameHours(accountId) {
-  if (steamGameHours.has(accountId) || steamGameHoursPending.has(accountId) || !window.api.gameHours) return;
+  if (steamGameHoursPending.has(accountId) || !window.api.gameHours) return;
+  if (steamGameHours.has(accountId) && Date.now() - (steamGameHoursAt.get(accountId) || 0) < 5 * 60 * 1000) return;
   steamGameHoursPending.add(accountId);
   window.api.gameHours(accountId).then((hours) => {
-    steamGameHours.set(accountId, hours || {});
-    document.querySelectorAll(`[data-steam-hours-account="${CSS.escape(accountId)}"]`).forEach((el) => {
-      const value = steamGameHours.get(accountId)[el.dataset.steamHoursAppid];
-      el.textContent = value == null ? '\u2014' : Number(value).toLocaleString(uiLocale());
-    });
-  }).catch(() => {}).finally(() => steamGameHoursPending.delete(accountId));
+    const ok = hours && !hours.error && Object.keys(hours).length;
+    if (ok) { steamGameHours.set(accountId, hours); steamGameHoursAt.set(accountId, Date.now()); paintSteamHours(accountId); }
+    else { paintSteamHours(accountId); setTimeout(() => loadSteamGameHours(accountId), 30000); }   // could not read it now: try again in 30 s
+  }).catch(() => { setTimeout(() => loadSteamGameHours(accountId), 30000); }).finally(() => steamGameHoursPending.delete(accountId));
 }
 
 function h(tag, props = {}, ...kids) {
@@ -38,6 +44,20 @@ const fmtHM = (sec) => {
   const p = (n) => String(n).padStart(2, '0');
   return h ? `${h}:${p(m)}:${p(x)}` : `${p(m)}:${p(x)}`;
 };
+// ---------- inline icons (replace emoji) ----------
+const ICONS = {
+  dash: '<rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/>',
+  search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>',
+  cards: '<rect x="4" y="3" width="11" height="15" rx="2"/><path d="M9 21h8a2 2 0 0 0 2-2V8"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18"/>'
+};
+function svgIco(name, size = 16) {
+  const s = document.createElement('span'); s.className = 'ico';
+  s.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ''}</svg>`;
+  return s;
+}
+const closeX = () => h('button', { class: 'dclose', title: 'Close', onclick: closeModal }, svgIco('close', 18));
 // ---------- game art ----------
 // Steam art comes from several CDN paths; old or delisted games often lack some of them.
 // Each game is resolved ONCE (first address that really loads), the result is remembered, and the picture
@@ -87,7 +107,7 @@ const imgObserver = 'IntersectionObserver' in window ? new IntersectionObserver(
   for (const e of entries) if (e.isIntersecting) { imgObserver.unobserve(e.target); if (e.target._start) e.target._start(); }
 }, { rootMargin: '240px' }) : null;
 function gameImg(g, props = {}) {
-  const img = h('img', { ...props, alt: '', draggable: 'false' });
+  const img = h('img', { ...props, alt: '', draggable: 'false', decoding: 'async' });
   img.className = ((props.class || '') + ' gimg').trim();
   const known = imgOk.get(g.appid);
   if (known) { img.src = known; return img; }   // already resolved: shows instantly
@@ -140,12 +160,6 @@ function statusMenu(a, x, y) {
   document.body.append(m);
   setTimeout(() => document.addEventListener('click', closeMenu, { once: true }), 0);
 }
-function sortedGames(a) {
-  const fav = new Set(a.favorites);
-  const WX = window.WellaExtra;
-  return (WX ? WX.visible(a.games) : [...a.games]).sort((x, y) => (fav.has(y.appid) - fav.has(x.appid)) || x.name.localeCompare(y.name));
-}
-
 let lastSideSig = '', lastCardSig = '', lastCount = -1, animateNext = true, switching = false;
 async function refreshInstalledApps(force = false) {
   if (!window.__WELLA_WEB || (!force && Date.now() - installedAppsAt < 60000)) return;
@@ -223,6 +237,7 @@ function render() {
 }
 function tick() {
   const boosting = accounts.filter((a) => a.status === 'boosting').length;
+  const byId = new Map(accounts.map((a) => [a.id, a]));
   const title = boosting ? `${boosting} account${boosting > 1 ? 's' : ''} boosting` : 'Nothing is boosting right now';
   if ($('#title').textContent !== title) $('#title').textContent = title;
   setPill(boosting > 0 && navigator.onLine);
@@ -230,7 +245,7 @@ function tick() {
   if ($('#fCount').textContent !== cnt) $('#fCount').textContent = cnt;
   for (const el of document.querySelectorAll('[data-live]')) {
     const [k, id, gid] = el.dataset.live.split('|');
-    const a = accounts.find((x) => x.id === id); if (!a) continue;
+    const a = byId.get(id); if (!a) continue;
     const v = k === 's' ? fmtHM(a.sessionSeconds) : k === 't' ? fmtHM(a.totalSeconds) : ((a.gameSeconds[gid] || 0) / 3600).toFixed(1);
     if (el.textContent !== v) el.textContent = v;
   }
@@ -252,17 +267,15 @@ window.addEventListener('offline', () => render());
 // (the opening animation plays only once, at start-up; showing the window from the tray does not replay it)
 
 
-// Idle Master Extended style summary, read from the Steam badges page: "88 card drops remaining / 21 games left to idle, 19 idle now. / Currently in-game"
+// Trading cards summary on the account card (numbers come from the Steam badges page read with the account's login). Click = full cards panel.
+const durText = (min) => { min = Math.round(Number(min) || 0); if (min <= 0) return '0 min'; if (min < 60) return min + ' min'; const hh = Math.floor(min / 60), m = min % 60; if (hh < 48) return m ? `${hh} h ${m} min` : `${hh} h`; return `${Math.floor(hh / 24)} d ${hh % 24} h`; };
 function cardSummary(a, on) {
-  if (!a.cardsT) return null;
-  const left = Object.entries(a.cardDrops || {}).filter(([, n]) => n > 0);
-  const total = left.reduce((x, [, n]) => x + n, 0);
-  const sel = new Set(a.selected || []);
-  const idleNow = on ? left.filter(([id]) => sel.has(Number(id))).length : 0;
-  return h('div', { class: 'cdsum', title: 'Read from the Steam badges page ' + agoText(a.cardsT) },
-    h('b', {}, `${total.toLocaleString(uiLocale())} card drops remaining`),
-    h('span', {}, `${left.length} game${left.length === 1 ? '' : 's'} left to idle, ${idleNow} idle now.`),
-    on ? h('em', {}, 'Currently in-game') : null);
+  const s = a.cardsSum;
+  return h('div', { class: 'cdsum clk', title: 'Open the trading cards of this account', onclick: () => openCards(a.id) },
+    s ? [h('b', {}, s.drops > 0 ? `${s.drops.toLocaleString(uiLocale())} free cards left in ${s.games} game${s.games === 1 ? '' : 's'}` : 'No free cards left'),
+        h('span', {}, `${s.drops > 0 ? 'About ' + durText(s.minutes) + ' to get them all' : 'Every card drop already came'}${s.cardsOwned != null ? ' \u00b7 you hold ' + s.cardsOwned.toLocaleString(uiLocale()) + ' cards' : ''}`),
+        on ? h('em', {}, 'Currently in-game') : null]
+      : [h('b', {}, 'Trading cards'), h('span', {}, 'Click to read the cards of this account from Steam')]);
 }
 function card(a) {
   const on = a.status === 'boosting', busy = a.status === 'connecting';
@@ -274,14 +287,20 @@ function card(a) {
       h('div', { class: 'avw', title: (a.health ? a.health.why + ' \u00b7 ' : '') + 'Click to set status', onclick: (e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); statusMenu(a, r.left, r.bottom + 6); } },
         a.avatar ? h('img', { class: 'av', src: a.avatar }) : h('div', { class: 'av' }),
         h('span', { class: 'dot ' + (a.health && a.health.ok ? 'ok live' : 'bad') })),
-      h('div', { class: 'who clk', title: 'Account info', onclick: () => openAccount(a.id) }, h('b', {}, a.personaName),
+      h('div', { class: 'who clk', title: (window.__WELLA_WEB && document.body.classList.contains('admin-panel')) ? 'Edit Steam account data' : 'Account info', onclick: () => ((window.__WELLA_WEB && document.body.classList.contains('admin-panel')) ? openProfileEditor(a.id) : openAccount(a.id)) }, h('b', {}, a.personaName),
         h('small', {}, `${a.selected.length} game${a.selected.length === 1 ? '' : 's'} · ${on ? statusLabel(a.persona) : busy ? 'Connecting…' : 'Not boosting'}`)),
       h('div', { class: 'stat' }, h('small', {}, 'This session'), h('div', { class: on ? '' : 'dim', 'data-live': `s|${a.id}` }, fmtHM(a.sessionSeconds))),
       h('div', { class: 'stat' }, h('small', {}, 'Total'), h('div', { 'data-live': `t|${a.id}` }, fmtHM(a.totalSeconds))),
       on ? h('button', { class: 'btn stop', onclick: () => window.api.stop(a.id) }, 'Stop')
          : h('button', { class: 'btn start', disabled: busy, onclick: async () => { const r = await window.api.start(a.id); if (r && r.error) toast(r.error, 'bad'); } }, busy ? 'Starting…' : 'Start'),
+      (!on && !busy) ? h('button', { class: 'btn ghost sm ico-btn', title: 'Select only the games that still have card drops and start boosting', onclick: async () => {
+        const r = await window.api.boostStartCards(a.id);
+        if (r && r.error) toast(r.error, 'bad');
+        else if (r && !r.started && r.note) toast(r.note, 'bad');
+        else if (r && r.ok) toast(`Boosting ${r.games} game${r.games === 1 ? '' : 's'} with card drops`, 'ok');
+      } }, svgIco('cards'), 'Cards') : null,
       h('button', { class: 'icon', title: 'Choose games', onclick: () => openPicker(a) }, '✎'),
-      h('button', { class: 'icon', title: 'Remove account', onclick: () => { if (confirm(`Remove ${a.personaName}?`)) window.api.remove(a.id); } }, '🗑')),
+      h('button', { class: 'icon', title: 'Remove account', onclick: () => { if (confirm(`Remove ${a.personaName}?`)) window.api.remove(a.id); } }, svgIco('trash', 17))),
     cardSummary(a, on),
     a.note ? h('div', { class: 'note' }, a.note) : (!on && !busy && a.health && a.health.why && a.health.why !== 'Hour Booster is not running' ? h('div', { class: 'note' }, a.health.why) : null),
     h('div', { class: 'games' },
@@ -302,7 +321,7 @@ function card(a) {
           } catch (err) { toast(err.message || 'Could not launch this game from the web app.', 'bad'); }
           finally { button.disabled = false; button.textContent = window.WellaI18n ? window.WellaI18n.t('Play') : 'Play'; }
         } }, 'Play') : null,
-        h('div', { class: 'hrs' }, h('span', { class: 'steamhrs', 'data-steam-hours-account': a.id, 'data-steam-hours-appid': g.appid }, steamGameHours.has(a.id) ? (steamGameHours.get(a.id)[g.appid] == null ? '\u2014' : Number(steamGameHours.get(a.id)[g.appid]).toLocaleString(uiLocale())) : '\u2026'), h('i', { class: 'steamunit' }, 'h'), h('span', { class: 'boostedhrs', 'data-live': `g|${a.id}|${g.appid}` }, ((a.gameSeconds[g.appid] || 0) / 3600).toFixed(1)), h('i', {}, 'h'))))
+        h('div', { class: 'hrs' }, h('span', { class: 'steamhrs', title: 'Total hours on Steam for this game', 'data-steam-hours-account': a.id, 'data-steam-hours-appid': g.appid }, steamGameHours.has(a.id) ? (steamGameHours.get(a.id)[g.appid] == null ? '\u2014' : Number(steamGameHours.get(a.id)[g.appid]).toLocaleString(uiLocale(), { maximumFractionDigits: 1 })) : '\u2026'), h('i', { class: 'steamunit' }, 'h'), h('span', { class: 'boostedhrs', title: 'Hours added by the Hour Booster', 'data-live': `g|${a.id}|${g.appid}` }, ((a.gameSeconds[g.appid] || 0) / 3600).toFixed(1)), h('i', {}, 'h'))))
         : h('div', { class: 'empty' }, a.games.length ? 'No games selected. Click the pencil to choose.' : 'No games found on this account.')));
 }
 
@@ -310,72 +329,262 @@ function card(a) {
 const agoText = (t) => { const m = Math.max(0, Math.round((Date.now() - t) / 60000)); return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} d ago`; };
 function openPicker(a) {
   const sel = new Set(a.selected), fav = new Set(a.favorites);
-  let q = '', onlyCards = false, busy = false, scanErr = '';
-  const cur = () => accounts.find((x) => x.id === a.id) || a;      // the state is refreshed after a card scan
-  const known = () => !!cur().cardsT;                              // card drops were read from Steam at least once
-  const left = (g) => (cur().cardDrops || {})[g.appid] || 0;
+  let q = '', selTop = false, sortMode = 'hours', filterCards = false;
+  try { selTop = localStorage.getItem('wella-sel-top') === '1'; } catch {}
+  try { sortMode = localStorage.getItem('wella-picker-sort') || 'hours'; } catch {}
   const list = h('div', { class: 'plist' });
   const counter = h('small', {});
-  const info = h('small', { class: 'cinfo' });
-  // the games the list works on: everything, or (box ticked) only the games that still have card drops left, most cards first
+  // sort game list according to current sortMode / filterCards
   const base = () => {
-    const g0 = sortedGames({ games: a.games, favorites: [...fav] });
-    if (!onlyCards) return g0;
-    return g0.filter((g) => (known() ? left(g) > 0 : g.cards))
-      .sort((x, y) => (fav.has(y.appid) - fav.has(x.appid)) || (known() ? left(y) - left(x) : 0) || x.name.localeCompare(y.name));
-  };
-  const paintInfo = () => {
-    const c = cur();
-    if (busy) { info.replaceChildren(h('span', { class: 'spin' }), 'Reading card info from Steam…'); return; }
-    if (scanErr) { info.replaceChildren(h('span', { class: 'err' }, scanErr + (onlyCards ? ' Showing every game that has trading cards.' : ''))); return; }
-    if (known()) {
-      const vals = Object.values(c.cardDrops || {}).filter((n) => n > 0);
-      info.textContent = `${vals.length} game${vals.length === 1 ? '' : 's'} with card drops left · ${vals.reduce((x, y) => x + y, 0)} cards to get · updated ${agoText(c.cardsT)}`;
-    } else info.textContent = 'Tick the box to read which games still have trading cards to drop.';
+    let games = a.games.map((g) => ({ ...g, boostedHours: (a.gameSeconds && a.gameSeconds[g.appid] ? a.gameSeconds[g.appid] / 3600 : 0), dropsLeft: a.cardDrops ? (a.cardDrops[g.appid] != null ? a.cardDrops[g.appid] : null) : null }));
+    if (filterCards) games = games.filter((g) => g.dropsLeft != null && g.dropsLeft > 0);
+    if (sortMode === 'alpha') games.sort((x, y) => x.name.localeCompare(y.name));
+    else if (sortMode === 'noHours') games.sort((x, y) => (x.boostedHours === 0 ? -1 : y.boostedHours === 0 ? 1 : 0) || x.name.localeCompare(y.name));
+    else games.sort((x, y) => (y.boostedHours - x.boostedHours) || x.name.localeCompare(y.name));  // 'hours'
+    // keep favorites grouped only in non-alpha modes
+    if (sortMode !== 'alpha') games = [...games.filter((g) => fav.has(g.appid)), ...games.filter((g) => !fav.has(g.appid))];
+    return games;
   };
   const draw = () => {
     list.replaceChildren();
     const games = base().filter((g) => g.name.toLowerCase().includes(q));
-    const favs = games.filter((g) => fav.has(g.appid)), rest = games.filter((g) => !fav.has(g.appid));
+    const onTop = selTop ? games.filter((g) => sel.has(g.appid)) : [], onSet = new Set(onTop.map((g) => g.appid));
+    const favs = games.filter((g) => fav.has(g.appid) && !onSet.has(g.appid)), rest = games.filter((g) => !fav.has(g.appid) && !onSet.has(g.appid));
     const row = (g) => h('label', { class: 'pi' },
       h('input', { type: 'checkbox', checked: sel.has(g.appid) ? 'checked' : null, onchange: (e) => {
         if (e.target.checked) { if (sel.size >= MAX) { e.target.checked = false; toast(`Max ${MAX} games`, 'bad'); return; } sel.add(g.appid); } else sel.delete(g.appid);
         counter.textContent = `${sel.size}/${MAX} selected`; } }),
       gameImg(g),
       h('span', {}, g.name),
-      onlyCards && known() ? h('em', { class: 'cdrop', title: 'Trading card drops still to come' }, `${left(g)} card${left(g) === 1 ? '' : 's'} left`) : null,
       window.WellaExtra ? window.WellaExtra.hideBtn(g, draw) : null,
-      h('button', { class: 'star' + (fav.has(g.appid) ? ' on' : ''), title: 'Favorite', onclick: (e) => { e.preventDefault(); fav.has(g.appid) ? fav.delete(g.appid) : fav.add(g.appid); draw(); } }, '★'));
+      h('button', { class: 'star' + (fav.has(g.appid) ? ' on' : ''), title: 'Favorite', onclick: (e) => { e.preventDefault(); fav.has(g.appid) ? fav.delete(g.appid) : fav.add(g.appid); draw(); } }, '\u2605'));
+    if (onTop.length) list.append(h('div', { class: 'sec' }, 'Activated'), ...onTop.map(row));
     if (favs.length) list.append(h('div', { class: 'sec' }, 'Favorites'), ...favs.map(row));
-    if (rest.length) list.append(h('div', { class: 'sec' }, favs.length ? 'All games' : `${rest.length} games`), ...rest.map(row));
-    if (!games.length) list.append(h('div', { class: 'empty' }, onlyCards && known() ? 'No game has card drops left. Nice!' : 'No games found.'));
+    if (rest.length) list.append(h('div', { class: 'sec' }, favs.length || onTop.length ? 'All games' : `${rest.length} games`), ...rest.map(row));
+    if (!games.length) list.append(h('div', { class: 'empty' }, 'No games found.'));
     counter.textContent = `${sel.size}/${MAX} selected`;
-    paintInfo();
   };
-  const scan = async () => {
-    if (busy) return;
-    busy = true; scanErr = ''; paintInfo();
-    let r; try { r = await window.api.cardsScan(a.id); } catch (e) { r = { error: e.message || String(e) }; }
-    busy = false; scanErr = r && r.error ? r.error : '';
-    draw();
-  };
-  const box = h('input', { type: 'checkbox', onchange: async (e) => { onlyCards = e.target.checked; draw(); if (onlyCards && (!known() || Date.now() - cur().cardsT > 3600e3)) await scan(); } });
   draw();
+  // sort toggle buttons — built outside so they can reference each other
+  const SORTS = [['hours', 'Most played'], ['alpha', 'A–Z'], ['noHours', '0 hours first']];
+  let sortBtns;
+  const mkSortBtn = (mode, label) => h('button', { class: 'btn ghost sm' + (sortMode === mode ? ' on' : ''), title: `Sort: ${label}`, onclick: () => {
+    sortMode = mode; try { localStorage.setItem('wella-picker-sort', mode); } catch {}
+    sortBtns.forEach((b, i) => b.classList.toggle('on', SORTS[i][0] === mode));
+    draw(); list.scrollTop = 0;
+  } }, label);
+  sortBtns = SORTS.map(([m, l]) => mkSortBtn(m, l));
+  let filterBtn;
+  filterBtn = h('button', { class: 'btn ghost sm ico-btn' + (filterCards ? ' on' : ''), title: 'Show only games that still have card drops', onclick: () => {
+    filterCards = !filterCards; filterBtn.classList.toggle('on', filterCards); draw(); list.scrollTop = 0;
+  } }, svgIco('cards', 15), 'Cards only');
   showModal(h('div', { class: 'modal' },
     h('h2', {}, `Games on ${a.personaName}`),
     h('input', { class: 'in', placeholder: 'Search games', oninput: (e) => { q = e.target.value.toLowerCase(); draw(); } }),
-    h('div', { class: 'cfilter' },
-      h('label', { class: 'chk' }, box, 'Only games with trading cards left'),
-      h('button', { class: 'btn text sm', title: 'Read the card info from Steam again', onclick: scan }, '↻ Update')),
-    info,
     h('div', { class: 'gtools' },
-      h('button', { class: 'btn ghost', onclick: () => { sel.clear(); for (const g of base().slice(0, MAX)) sel.add(g.appid); draw(); } }, onlyCards ? `Select first ${MAX} with cards` : `Select first ${MAX}`),
+      (() => { const b = h('button', { class: 'btn ghost' + (selTop ? ' on' : ''), title: 'Show the games that are switched on at the top of the list', onclick: () => { selTop = !selTop; try { localStorage.setItem('wella-sel-top', selTop ? '1' : '0'); } catch {} b.classList.toggle('on', selTop); draw(); list.scrollTop = 0; } }, 'Activated on top'); return b; })(),
+      h('button', { class: 'btn ghost', onclick: () => { sel.clear(); for (const g of base().slice(0, MAX)) sel.add(g.appid); draw(); } }, `Select first ${MAX}`),
+      h('button', { class: 'btn ghost', title: 'Pick the games that still have free trading cards to drop', onclick: () => openCards(a.id) }, 'Trading cards\u2026'),
       h('button', { class: 'btn text', onclick: () => { sel.clear(); draw(); } }, 'Clear')),
+    h('div', { class: 'gtools', style: 'margin-top:4px' }, ...sortBtns, filterBtn),
     list, counter,
     h('div', { class: 'mact' },
-      h('button', { class: 'btn text', onclick: async (e) => { e.target.textContent = 'Refreshing…'; const r = await window.api.refreshGames(a.id); closeModal(); toast(r && r.error ? r.error : 'Game list updated', r && r.error ? 'bad' : 'ok'); } }, 'Refresh list'),
+      h('button', { class: 'btn text', onclick: async (e) => { e.target.textContent = 'Refreshing\u2026'; const r = await window.api.refreshGames(a.id); closeModal(); toast(r && r.error ? r.error : 'Game list updated', r && r.error ? 'bad' : 'ok'); } }, 'Refresh list'),
       h('button', { class: 'btn ghost', onclick: closeModal }, 'Cancel'),
       h('button', { class: 'btn red', onclick: async () => { await window.api.update({ id: a.id, selected: [...sel], favorites: [...fav] }); closeModal(); } }, 'Save'))));
+}
+
+// ----- Trading cards panel: every game of the account that still drops cards, read from the badges page with the account's login -----
+function openCards(accId) {
+  const cur = () => accounts.find((x) => x.id === accId);
+  const a0 = cur(); if (!a0) return;
+  let view = null, busy = false, err = '', q = '', flt = null;
+  const body = h('div', { class: 'cards-body' });
+  const list = h('div', { class: 'plist cards-list' });
+  const chips = h('div', { class: 'cflt' });
+  const tile = (label, value, cls) => h('div', { class: 'ctile' }, h('small', {}, label), h('b', { class: cls || '' }, value));
+  const num = (n) => (n == null ? '\u2014' : Number(n).toLocaleString(uiLocale()));
+  const kind = (g) => (g.noCards ? 'nocards' : g.drops > 0 ? 'drops' : 'none');
+  const FLT = [['drops', 'Free cards left'], ['none', 'No free cards left'], ['nocards', 'No trading cards'], ['all', 'All games']];
+  const paintChips = () => {
+    const all = (view && view.games) || [];
+    const n = (k) => (k === 'all' ? all.length : all.filter((g) => kind(g) === k).length);
+    chips.replaceChildren(...FLT.map(([k, label]) => h('button', { class: 'chip' + (flt === k ? ' on' : ''), onclick: () => { flt = k; paintChips(); paintList(); } }, `${label} (${n(k)})`)));
+  };
+  const paintList = () => {
+    list.replaceChildren();
+    const games = ((view && view.games) || []).filter((g) => (flt === 'all' || kind(g) === flt) && g.name.toLowerCase().includes(q));
+    for (const g of games) {
+      const k = kind(g), hrs = g.hours ? g.hours.toLocaleString(uiLocale()) + ' h on record' : 'not played yet';
+      const sub = k === 'nocards' ? hrs : k === 'drops' ? `${hrs} \u00b7 about ${durText(g.drops * ((view.estimate && view.estimate.minPerDrop) || 30))} for the rest${g.total ? ' \u00b7 set of ' + g.total : ''}` : `${hrs}${g.total ? ' \u00b7 set of ' + g.total : ''}`;
+      list.append(h('div', { class: 'pi crow' }, gameImg({ appid: g.appid, name: g.name }),
+        h('div', { class: 'cname' }, h('b', {}, g.name), h('small', {}, sub)),
+        k === 'nocards' ? null : h('span', { class: 'chave', title: 'Different cards you hold / cards in the set' }, g.total ? `${g.have}/${g.total}` : `${g.have}`),
+        k === 'drops' ? h('em', { class: 'cdrop', title: 'Free card drops still to come' }, `${g.drops} left`)
+          : k === 'nocards' ? h('em', { class: 'cdone', title: 'This game has no trading cards' }, 'No trading cards')
+          : h('em', { class: 'cdone', title: 'Steam says: No card drops remaining' }, 'No free cards left')));
+    }
+    if (!games.length) list.append(h('div', { class: 'empty' }, view ? (flt === 'drops' ? 'No free cards left on this account.' : 'No game matches.') : ''));
+  };
+  const paint = () => {
+    const kids = [];
+    if (busy) kids.push(h('div', { class: 'cinfo' }, h('span', { class: 'spin' }), 'Reading badges, cards and set sizes from Steam\u2026 this can take a minute.'));
+    if (err) kids.push(h('div', { class: 'cinfo' }, h('span', { class: 'err' }, err)));
+    if (view) {
+      const e = view.estimate;
+      kids.push(h('div', { class: 'ctiles' },
+        tile('Free cards still to drop', num(e.drops), 'good'), tile('Games with drops left', num(e.games)),
+        tile('Estimated time', e.games ? durText(e.minutes) : 'Nothing left'),
+        tile('Cards you hold', num(view.cardsOwned)), tile('Sets you can finish free', num(view.freeSets)), tile('Complete sets held', num(view.setsComplete))));
+      kids.push(h('small', { class: 'unote' }, e.games
+        ? `Estimate: about ${e.minPerDrop} min per card for each game, with ${e.parallel} game${e.parallel === 1 ? '' : 's'} idling at once (Steam allows ${MAX}). Steam does not publish its drop rate, so this is a rough guide. Read ${agoText(view.t)}.`
+        : `Read ${agoText(view.t)}.`));
+      if (view.note) kids.push(h('small', { class: 'unote' }, view.note));
+    } else if (!busy && !err) kids.push(h('div', { class: 'empty' }, 'Nothing read yet.'));
+    body.replaceChildren(...kids);
+    if (view && flt == null) flt = view.estimate && view.estimate.games ? 'drops' : 'all';
+    chips.style.display = view ? '' : 'none';
+    paintChips(); paintList();
+  };
+  const scan = async () => {
+    if (busy) return;
+    busy = true; err = ''; paint();
+    let r; try { r = await window.api.cardsScan(accId); } catch (e) { r = { error: e.message || String(e) }; }
+    busy = false;
+    if (r && r.error) err = r.error; else if (r && r.view) view = r.view;
+    paint();
+  };
+  const boost = async () => {
+    const acc = cur(); if (!acc || !view) return;
+    const mine = new Set((acc.games || []).map((g) => g.appid));
+    const picks = view.games.filter((g) => g.drops > 0 && mine.has(g.appid)).slice(0, MAX).map((g) => g.appid);
+    if (!picks.length) { toast('No game with free cards left on this account.', 'bad'); return; }
+    await window.api.update({ id: accId, selected: picks });
+    closeModal(); toast(`${picks.length} game${picks.length === 1 ? '' : 's'} with the most free cards selected. Press Start to boost them.`, 'ok');
+  };
+  paint();
+  showModal(h('div', { class: 'modal cardsm' },
+    h('div', { class: 'ahead' }, a0.avatar ? h('img', { class: 'av big', src: a0.avatar }) : null, h('div', {}, h('h2', {}, 'Trading cards'), h('small', {}, a0.personaName))),
+    body,
+    h('input', { class: 'in', placeholder: 'Search games', oninput: (e) => { q = e.target.value.toLowerCase(); paintList(); } }),
+    chips,
+    list,
+    h('div', { class: 'mact' },
+      h('button', { class: 'btn ghost', onclick: scan }, '\u21bb Read from Steam'),
+      h('button', { class: 'btn ghost', title: `Select the ${MAX} games with the most free cards left for boosting`, onclick: boost }, `Select top ${MAX} to boost`),
+      h('button', { class: 'btn red', onclick: closeModal }, 'Close'))));
+  window.api.cardsGet(accId).then((r) => { if (r && r.view) { view = r.view; paint(); } if (!view || Date.now() - view.t > 3600e3) scan(); }).catch(() => scan());
+}
+
+// ----- Steam profile editor: opens on its own, changes go to Steam only when "Commit changes" is pressed -----
+// Text, avatar and privacy are edited right here. Background, mini profile, theme, featured badge, favorite group and showcases open Steam's own edit page inside the app, already signed in as the account.
+function openProfileEditor(accId) {
+  const a = accounts.find((x) => x.id === accId); if (!a) return;
+  let orig = null, origPriv = null, saving = false, avatarPick = null;
+  const status = h('div', { class: 'pe-status' });
+  const fields = {};
+  const mk = (key, label, el, hint) => { fields[key] = el; return h('div', { class: 'pe-field' }, h('label', {}, label), el, hint ? h('small', {}, hint) : null); };
+  const input = (key, ph, max) => h('input', { class: 'in', placeholder: ph, maxlength: String(max), oninput: refresh });
+  const name = input('personaName', 'Profile name', 32), real = input('realName', 'Real name', 32), url = input('customURL', 'custom_url', 32);
+  const sum = h('textarea', { class: 'in pe-sum', placeholder: 'Summary shown on the profile', maxlength: '2000', oninput: refresh });
+  const count = h('small', { class: 'pe-count' });
+  const commit = h('button', { class: 'btn red', disabled: true, onclick: () => doCommit() }, 'Commit changes');
+  const discard = h('button', { class: 'btn ghost', disabled: true, onclick: () => { fill(orig, origPriv); } }, 'Discard');
+
+  // avatar: pick a file now, it is uploaded on Commit
+  const avPrev = h('img', { class: 'av big pe-av', src: a.avatar || '' });
+  const avNote = h('small', {}, 'JPG, PNG or GIF up to 1 MB. Steam shows it at 184\u00d7184.');
+  const avBtn = h('button', { class: 'btn ghost sm', onclick: async () => {
+    let r; try { r = await window.api.profilePickAvatar(); } catch (e) { r = { error: e.message || String(e) }; }
+    if (!r || r.canceled) return;
+    if (r.error) { status.replaceChildren(h('span', { class: 'err' }, r.error)); return; }
+    avatarPick = r; avPrev.src = r.preview; avNote.textContent = `${r.name} \u00b7 ${Math.round(r.size / 1024)} KB \u00b7 uploaded when you press Commit changes`; status.replaceChildren(); refresh();
+  } }, 'Choose image\u2026');
+  const avatarBox = window.__WELLA_WEB ? null : h('div', { class: 'pe-field', id: 'pe-avatar' }, h('label', {}, 'Avatar'), h('div', { class: 'pe-avrow' }, avPrev, h('div', { class: 'pe-avcol' }, avBtn, avNote)));
+
+  // privacy: 1 private, 2 friends only, 3 public (comments: 0 friends only, 1 public, 2 private)
+  const PRIV = [['profile', 'My profile'], ['ownedGames', 'Game details'], ['playtime', 'Total playtime'], ['inventory', 'Inventory'], ['gifts', 'Gifts in inventory'], ['friends', 'Friends list']];
+  const OPT3 = [[3, 'Public'], [2, 'Friends only'], [1, 'Private']];
+  const sel = (opts) => h('select', { class: 'in pe-sel', onchange: refresh }, opts.map(([v, l]) => h('option', { value: String(v) }, l)));
+  const privSel = {}; for (const [k] of PRIV) privSel[k] = sel(OPT3);
+  privSel.comments = sel([[1, 'Public'], [0, 'Friends only'], [2, 'Private']]);
+  const privBox = h('div', { class: 'pe-field hidden', id: 'pe-privacy' }, h('label', {}, 'Privacy settings'),
+    h('div', { class: 'pe-privgrid' }, [...PRIV, ['comments', 'Comments']].map(([k, l]) => h('div', { class: 'pe-privrow' }, h('span', {}, l), privSel[k]))));
+
+  // Steam's own pages
+  const WEBP = [['background', 'Profile background'], ['miniprofile', 'Mini profile'], ['theme', 'Profile theme'], ['badge', 'Featured badge'], ['favoritegroup', 'Favorite group'], ['showcases', 'Showcases'], ['avatar', 'Avatar frame']];
+  const openWeb = async (page) => {
+    status.replaceChildren(h('span', { class: 'spin' }), 'Opening Steam\u2019s editor\u2026');
+    let r; try { r = await window.api.profileOpenWeb({ id: accId, page }); } catch (e) { r = { error: e.message || String(e) }; }
+    if (r && r.error) status.replaceChildren(h('span', { class: 'err' }, r.error)); else status.replaceChildren();
+  };
+  const webBox = window.__WELLA_WEB ? null : h('div', { class: 'pe-field' }, h('label', {}, 'More on Steam'),
+    h('div', { class: 'pe-web' }, WEBP.map(([pg, l]) => h('button', { class: 'chip', onclick: () => openWeb(pg) }, l))),
+    h('small', {}, 'Opens Steam\u2019s own page for this in a window of the app, signed in as this account. The login is not kept after you close it.'));
+
+  const form = h('div', { class: 'pe-form hidden' },
+    avatarBox,
+    mk('personaName', 'Profile name', name), mk('realName', 'Real name', real),
+    mk('customURL', 'Custom URL', url, 'steamcommunity.com/id/\u2026 (3 to 32 letters, digits, _ or -)'),
+    mk('summary', 'Summary', sum), count, privBox, webBox);
+  const values = () => ({ personaName: name.value, realName: real.value, customURL: url.value, summary: sum.value });
+  const diff = () => { if (!orig) return {}; const v = values(), out = {}; for (const k of Object.keys(v)) if (v[k] !== orig[k]) out[k] = v[k]; return out; };
+  const privDiff = () => { if (!origPriv) return {}; const out = {}; for (const k of Object.keys(privSel)) if (k in origPriv && Number(privSel[k].value) !== Number(origPriv[k])) out[k] = Number(privSel[k].value); return out; };
+  const total = () => Object.keys(diff()).length + Object.keys(privDiff()).length + (avatarPick ? 1 : 0);
+  function refresh() {
+    const d = diff(), pd = privDiff(), n = total();
+    for (const k of Object.keys(fields)) fields[k].classList.toggle('changed', k in d);
+    privBox.classList.toggle('changed', Object.keys(pd).length > 0);
+    if (avatarBox) avatarBox.classList.toggle('changed', !!avatarPick);
+    count.textContent = `${[...sum.value].length}/2000`;
+    commit.disabled = saving || !n; discard.disabled = saving || !n;
+    commit.textContent = saving ? 'Saving\u2026' : n ? `Commit changes (${n})` : 'Commit changes';
+  }
+  function fill(p, pr) {
+    name.value = p.personaName; real.value = p.realName; url.value = p.customURL; sum.value = p.summary;
+    if (pr) for (const k of Object.keys(privSel)) if (k in pr) privSel[k].value = String(pr[k]);
+    privBox.classList.toggle('hidden', !pr);
+    avatarPick = null; { const ca = accounts.find((x) => x.id === accId); avPrev.src = (ca && ca.avatar) || a.avatar || ''; } avNote.textContent = 'JPG, PNG or GIF up to 1 MB. Steam shows it at 184\u00d7184.';
+    refresh();
+  }
+  async function doCommit() {
+    const d = diff(), pd = privDiff(); if (!total() || saving) return;
+    saving = true; status.replaceChildren(h('span', { class: 'spin' }), 'Sending the changes to Steam\u2026'); refresh();
+    const errs = []; let verified = true;
+    if (Object.keys(d).length) {
+      let r; try { r = await window.api.profileSave({ id: accId, changes: d }); } catch (e) { r = { error: e.message || String(e) }; }
+      if (r && r.error) errs.push(r.error); else { orig = { ...orig, ...r.profile }; verified = verified && r.verified; }
+    }
+    if (Object.keys(pd).length) {
+      let r; try { r = await window.api.profilePrivacySave({ id: accId, changes: pd }); } catch (e) { r = { error: e.message || String(e) }; }
+      if (r && r.error) errs.push(r.error); else { origPriv = { ...origPriv, ...r.privacy }; verified = verified && r.verified; }
+    }
+    let newAv = false;
+    if (avatarPick) {
+      let r; try { r = await window.api.profileAvatar(accId); } catch (e) { r = { error: e.message || String(e) }; }
+      if (r && r.error) errs.push(r.error); else { newAv = true; avatarPick = null; }
+    }
+    saving = false;
+    const cur = accounts.find((x) => x.id === accId);
+    if (newAv && cur && cur.avatar) avPrev.src = cur.avatar;
+    const keepPick = avatarPick; fill(orig, origPriv); if (keepPick) { avatarPick = keepPick; refresh(); }
+    if (errs.length) { status.replaceChildren(...errs.map((m) => h('div', { class: 'err' }, m))); return; }
+    status.replaceChildren(h('span', { class: 'okk' }, verified ? 'Saved. Steam now shows these values.' : 'Saved. Steam accepted the changes.'));
+    toast('Steam profile updated', 'ok');
+  }
+  async function load() {
+    form.classList.add('hidden'); status.replaceChildren(h('span', { class: 'spin' }), 'Reading the profile from Steam\u2026');
+    let r; try { r = await window.api.profileGet(accId); } catch (e) { r = { error: e.message || String(e) }; }
+    if (r && r.error) { status.replaceChildren(h('span', { class: 'err' }, r.error), h('button', { class: 'btn text sm', onclick: load }, 'Try again')); return; }
+    orig = r.profile; origPriv = r.privacy || null; status.replaceChildren(); form.classList.remove('hidden'); fill(orig, origPriv);
+  }
+  showModal(h('div', { class: 'modal pe' },
+    h('div', { class: 'ahead' }, a.avatar ? h('img', { class: 'av big', src: a.avatar }) : null, h('div', {}, h('h2', {}, 'Edit Steam profile'), h('small', {}, `${a.personaName} \u00b7 changes are sent to Steam only when you press Commit changes`))),
+    status, form,
+    h('div', { class: 'mact' },
+      h('button', { class: 'btn text', onclick: () => openAccount(accId) }, 'Back'),
+      discard, commit)));
+  load();
 }
 
 // ----- add account -----
@@ -454,6 +663,10 @@ $('#modal').addEventListener('mousedown', (e) => { if (e.target === $('#modal') 
 
 $('#startAll').onclick = () => window.api.startAll();
 $('#stopAll').onclick = () => window.api.stopAll();
+
+// ----- Find game button -----
+const searchBtn = h('button', { class: 'btn ghost sm ico-btn', title: 'Find a game across all accounts', onclick: openGlobalSearch }, svgIco('search'), 'Find game');
+document.querySelector('.head-actions').prepend(searchBtn);
 const rotationButton = $('#rotationToggle');
 function paintRotationToggle() {
   if (!rotationButton) return;
@@ -472,18 +685,246 @@ window.api.getGameRotation().then((r) => { gameRotationOn = !!(r && r.enabled); 
 window.api.onState((s) => { const n = accounts.length; accounts = s; render(); if (s.length !== n) refreshBans(); });
 // once a second only the timers arrive (small message); the full state is sent only when something changes
 (window.api.onTick || (() => {}))((list) => {
-  for (const x of list) { const a = accounts.find((y) => y.id === x.id); if (a) { a.sessionSeconds = x.s; a.totalSeconds = x.t; a.gameSeconds = x.g; } }
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  for (const x of list) {
+    const a = byId.get(x.id);
+    if (a) { a.sessionSeconds = x.s; a.totalSeconds = x.t; a.gameSeconds = a.gameSeconds || {}; Object.assign(a.gameSeconds, x.g || {}); }
+  }
   tick();
 });
 (async () => { // the colours are stored on the PC, so the phone and the desktop always match
   try { const t = await window.api.getTheme(); if (t) window.WellaTheme.load(t); else window.api.setTheme(window.WellaTheme.get()); } catch {}
 })();
 (window.api.onTheme || (() => {}))((t) => window.WellaTheme.load(t));
-(async () => { accounts = await window.api.list(); $('#fVer').textContent = await window.api.version(); render(); splashReady(); refreshBans(); if (window.__WELLA_WEB) refreshInstalledApps(true); })();
+(async () => { accounts = await window.api.list(); $('#fVer').textContent = await window.api.version(); render();
+  try { const pf = await window.api.getPrefs(); if (pf && pf.dashTab !== false && tab === 'boost' && !(window.__WELLA_WEB && document.body.classList.contains('admin-panel'))) setTab('dash'); } catch {}   // the app opens on the Dashboard
+  splashReady(); refreshBans(); if (window.__WELLA_WEB) refreshInstalledApps(true); })();
 if (window.__WELLA_WEB) setInterval(() => refreshInstalledApps(true), 5 * 60 * 1000);
 
+// ================= Dashboard (all accounts: overview + boost history) =================
+async function buildDashboard(host, startTab) {
+  let tabKey = startTab === 'history' ? 'history' : 'overview';
+  let sortKey = 'name', filterKey = 'all';
+  let rows = [], log = [];
+  const steam = new Map();            // accountId -> { hours, played } | null (could not be read)
+  const steamAt = new Map();
+  const steamBusy = new Set();
+  const body = h('div', { class: 'dbody' });
+  const tabBtns = {};
+  const tabsEl = h('div', { class: 'dtabs' });
+  for (const [k, l] of [['overview', 'Overview'], ['history', 'History']]) {
+    tabBtns[k] = h('button', { class: 'btn ghost sm' + (k === tabKey ? ' on' : ''), onclick: () => {
+      tabKey = k; for (const x in tabBtns) tabBtns[x].classList.toggle('on', x === k); body.scrollTop = 0; paint();
+    } }, l);
+    tabsEl.append(tabBtns[k]);
+  }
+  const root = h('div', { class: 'dashpage' },
+    h('div', { class: 'dhead' }, h('div', {}, h('h2', {}, 'Dashboard'), h('small', {}, 'All accounts in one place')), tabsEl),
+    body);
+
+  const num = (n, d = 0) => Number(n || 0).toLocaleString(uiLocale(), { maximumFractionDigits: d });
+  const stat = (label, value, sub, good) => h('div', { class: 'dstat' },
+    h('small', {}, label), h('b', { class: good ? 'good' : '' }, value), sub ? h('em', {}, sub) : null);
+  const tile = (label, value, good, extra) => h('div', { class: 'ctile' + (extra ? ' ' + extra : '') }, h('small', {}, label), h('b', { class: good ? 'good' : '' }, value));
+
+  const merge = () => {
+    const today = (log.find((e) => e.today) || {}).accounts || {};
+    return rows.map((r) => {
+      const a = accounts.find((x) => x.id === r.id) || {};
+      const st = a.status || r.status;
+      const t = today[r.id] || {};
+      return { ...r, games: (a.games || []).length, selected: (a.selected || []).length, session: a.sessionSeconds || 0,
+        boosting: st === 'boosting', connecting: st === 'connecting', healthy: a.health ? !!a.health.ok : null,
+        hToday: t.hours || 0, cToday: t.cards || 0,
+        steamLoaded: steam.has(r.id), steamHours: steam.get(r.id) ? steam.get(r.id).hours : null, steamPlayed: steam.get(r.id) ? steam.get(r.id).played : null };
+    });
+  };
+
+  const buildOverview = () => {
+    const all = merge();
+    if (!all.length) return h('div', { class: 'empty' }, 'No accounts added yet.');
+    const sum = (f) => all.reduce((s, r) => s + (f(r) || 0), 0);
+    const boosting = all.filter((r) => r.boosting).length;
+    const steamRead = all.filter((r) => r.steamHours != null).length;
+    const steamSum = all.reduce((s, r) => s + (r.steamHours || 0), 0);
+    const longest = Math.max(0, ...all.filter((r) => r.drops > 0 && r.estimateMinutes != null).map((r) => r.estimateMinutes));
+    const summary = h('div', { class: 'dsum' },
+      stat('Accounts', num(all.length)),
+      stat('Boosting now', `${boosting} / ${all.length}`, null, boosting > 0),
+      stat('Steam hours (all time)', steamRead ? num(steamSum, 0) : (steamBusy.size ? 'Loading\u2026' : '\u2014'), steamRead && steamRead < all.length ? `${steamRead} of ${all.length} accounts returned playtime data` : (steamRead ? 'from Steam playtime records' : null), steamRead > 0),
+      stat('Boosted hours', num(sum((r) => r.totalHours), 1)),
+      stat('Hours today', num(sum((r) => r.hToday), 1)),
+      stat('Cards left', num(sum((r) => r.drops)), `${num(sum((r) => r.gamesWithDrops))} games`, sum((r) => r.drops) > 0),
+      stat('Longest est. time', longest ? durText(longest) : '\u2014'),
+      stat('Cards today', num(sum((r) => r.cToday))),
+      stat('Games owned', num(sum((r) => r.games))),
+      stat('Games selected', num(sum((r) => r.selected))),
+      stat('Complete sets', num(sum((r) => r.setsComplete))),
+      stat('Cards held', num(sum((r) => r.cardsOwned))));
+
+    const sorters = {
+      name: (x, y) => x.name.localeCompare(y.name),
+      hours: (x, y) => y.totalHours - x.totalHours,
+      cards: (x, y) => y.drops - x.drops,
+      boosting: (x, y) => (y.boosting - x.boosting) || x.name.localeCompare(y.name),
+    };
+    const filters = { all: () => true, boosting: (r) => r.boosting, idle: (r) => !r.boosting, cards: (r) => r.drops > 0 };
+    const sortSel = h('select', { class: 'in dsort', onchange: (e) => { sortKey = e.target.value; paint(); } },
+      ...[['name', 'Name'], ['boosting', 'Boosting first'], ['hours', 'Most hours'], ['cards', 'Most cards left']].map(([v, l]) => h('option', { value: v, selected: v === sortKey ? 'selected' : null }, l)));
+    const chips = h('div', { class: 'dchips' }, ...[['all', 'All'], ['boosting', 'Boosting'], ['idle', 'Idle'], ['cards', 'With cards left']].map(([k, l]) =>
+      h('button', { class: 'btn ghost sm' + (filterKey === k ? ' on' : ''), onclick: () => { filterKey = k; paint(); } }, l)));
+    const bar = h('div', { class: 'dbar' }, chips, sortSel);
+
+    const list = all.filter(filters[filterKey]).sort(sorters[sortKey]);
+    const grid = h('div', { class: 'dgrid' }, ...(list.length ? list.map(accCard) : [h('div', { class: 'empty' }, 'No accounts match this filter.')]));
+    return h('div', { class: 'dwrap' }, summary, bar, grid);
+  };
+
+  const accCard = (r) => {
+    const est = r.estimateText || (r.estimateMinutes != null ? durText(r.estimateMinutes) : null);
+    const state = r.boosting ? 'Boosting' : r.connecting ? 'Connecting\u2026' : 'Idle';
+    return h('div', { class: 'dacc' + (r.boosting ? ' on' : '') },
+      h('div', { class: 'dtop' },
+        h('div', { class: 'dav' }, r.avatar ? h('img', { src: r.avatar, draggable: 'false' }) : h('div', { class: 'dph' }, (r.name || '?')[0].toUpperCase()),
+          h('i', { class: 'ddot' + (r.boosting ? (r.healthy === false ? ' warn' : ' live') : '') })),
+        h('div', { class: 'dwho' },
+          h('b', {}, r.name),
+          h('small', {}, `${r.games} games \u00b7 ${r.selected} selected`)),
+        h('span', { class: 'dpill' + (r.boosting ? ' on' : '') }, state)),
+      h('div', { class: 'ctiles dtiles' },
+        tile('Steam hours (all time)', r.steamHours != null ? num(r.steamHours, 0) + ' h' : (r.steamLoaded ? 'Hidden' : 'Loading\u2026'), r.steamHours != null, 'wide'),
+        tile('Games played', r.steamPlayed != null ? `${num(r.steamPlayed)} / ${num(r.games)}` : (r.steamLoaded ? '\u2014' : 'Loading\u2026'), false, 'wide'),
+        tile('Session', r.boosting ? fmtHM(r.session) : '\u2014'),
+        tile('Today', num(r.hToday, 1) + ' h'),
+        tile('Boosted hours', num(r.totalHours, 1)),
+        tile('Cards left', r.drops > 0 ? `${r.drops} (${r.gamesWithDrops} games)` : 'None', r.drops > 0),
+        tile('Est. time', r.drops > 0 ? (est || '\u2014') : '\u2014'),
+        tile('Complete sets', r.setsComplete != null ? r.setsComplete : '\u2014'),
+        tile('Cards held', r.cardsOwned != null ? num(r.cardsOwned) : '\u2014'),
+        tile('Cards today', num(r.cToday))),
+      h('div', { class: 'dact' },
+        r.boosting
+          ? h('button', { class: 'btn stop sm', onclick: async () => { await window.api.stop(r.id); setTimeout(refresh, 800); } }, 'Stop')
+          : h('button', { class: 'btn start sm', disabled: r.connecting ? 'disabled' : null, onclick: async () => { const x = await window.api.start(r.id); if (x && x.error) toast(x.error, 'bad'); setTimeout(refresh, 800); } }, 'Start'),
+        h('button', { class: 'btn ghost sm', onclick: () => openCards(r.id) }, 'Cards'),
+        h('button', { class: 'btn ghost sm', onclick: async () => {
+          const g = await window.api.cardsCraftGuide(r.id);
+          if (g && g.error) toast(g.error, 'bad'); else openCraftGuide(r.name, g);
+        } }, 'Craft guide')));
+  };
+
+  const buildHistory = () => {
+    if (!log.length) return h('div', { class: 'empty' }, 'No history yet. Data is saved at the end of each day.');
+    const ids = [...new Set(log.flatMap((e) => Object.keys(e.accounts || {})))];
+    const nameOf = (id) => { const e = [...log].reverse().find((x) => x.accounts && x.accounts[id]); return e ? e.accounts[id].name : id; };
+    const sums = log.map((e) => ({ h: Object.values(e.accounts || {}).reduce((s, a) => s + (a.hours || 0), 0), c: Object.values(e.accounts || {}).reduce((s, a) => s + (a.cards || 0), 0), e }));
+    const totH = sums.reduce((s, x) => s + x.h, 0), totC = sums.reduce((s, x) => s + x.c, 0);
+    const best = sums.reduce((b, x) => (x.h > (b ? b.h : -1) ? x : b), null);
+    const summary = h('div', { class: 'dsum' },
+      stat('Days recorded', num(log.length)),
+      stat('Boosted hours', num(totH, 1)),
+      stat('Total cards', num(totC)),
+      stat('Average per day', num(totH / log.length, 1) + ' h'),
+      stat('Best day', best ? best.e.day : '\u2014', best ? num(best.h, 1) + ' h' : null));
+    const head = h('tr', {}, h('th', {}, 'Day'), ...ids.map((id) => h('th', {}, nameOf(id))), h('th', {}, 'Total'));
+    const trs = [...sums].reverse().map(({ e, h: th, c: tc }) => h('tr', { class: e.today ? 'today' : '' },
+      h('td', {}, h('b', {}, e.day), e.today ? h('small', {}, 'Today') : null),
+      ...ids.map((id) => { const a = (e.accounts || {})[id]; return a
+        ? h('td', {}, h('b', {}, num(a.hours, 2) + ' h'), a.cards ? h('small', {}, `${a.cards} ${a.cards === 1 ? 'card' : 'cards'}`) : null)
+        : h('td', { class: 'dim' }, '\u2014'); }),
+      h('td', {}, h('b', {}, num(th, 2) + ' h'), tc ? h('small', {}, `${tc} ${tc === 1 ? 'card' : 'cards'}`) : null)));
+    return h('div', { class: 'dwrap' }, summary,
+      h('div', { class: 'dtablewrap' }, h('table', { class: 'dhist' }, h('thead', {}, head), h('tbody', {}, ...trs))));
+  };
+
+  const paint = () => {
+    const top = body.scrollTop;
+    body.replaceChildren(tabKey === 'history' ? buildHistory() : buildOverview());
+    body.scrollTop = top;
+  };
+  // all-time playtime straight from Steam (what the Steam profile shows as "played"), summed over every game of the account
+  const loadSteam = () => {
+    for (const r of rows) {
+      const cachedAt = steamAt.get(r.id) || 0, cacheTtl = steam.get(r.id) ? 5 * 60 * 1000 : 2 * 60 * 1000;
+      if (steamBusy.has(r.id) || (steam.has(r.id) && Date.now() - cachedAt < cacheTtl)) continue;
+      steamBusy.add(r.id);
+      Promise.resolve().then(() => window.api.gameHours(r.id)).then((hrs) => {
+        const vals = hrs && !hrs.error ? Object.values(hrs).map(Number).filter((v) => Number.isFinite(v) && v >= 0) : [];
+        steam.set(r.id, vals.length ? { hours: vals.reduce((x, y) => x + y, 0), played: vals.filter((v) => v > 0).length } : null);
+        steamAt.set(r.id, Date.now());
+      }).catch(() => { steam.set(r.id, null); steamAt.set(r.id, Date.now()); }).finally(() => { steamBusy.delete(r.id); if (document.body.contains(root)) paint(); });
+    }
+  };
+  const refresh = async () => {
+    const [r, l] = await Promise.all([window.api.cardsDashboard(), Promise.resolve().then(() => window.api.dailyLog()).catch(() => null)]);
+    rows = Array.isArray(r) ? r : []; log = Array.isArray(l) ? l : [];
+  };
+
+  body.append(h('div', { class: 'cinfo' }, h('span', { class: 'spin' }), 'Loading\u2026'));
+  host.replaceChildren(root);
+  try { await refresh(); paint(); loadSteam(); }
+  catch (e) { body.replaceChildren(h('div', { class: 'cinfo' }, h('span', { class: 'err' }, e.message || 'Could not load dashboard.'))); return; }
+  const timer = setInterval(async () => {
+    if (!document.body.contains(root)) { clearInterval(timer); return; }
+    if (root.offsetParent === null) return;                     // tab not visible: do not ask again
+    try { await refresh(); paint(); loadSteam(); } catch {}
+  }, 8000);
+}
+
+// ================= Craft guide modal =================
+function openCraftGuide(accName, data) {
+  const { sets, totalSets, note } = data || { sets: [], totalSets: 0, note: '' };
+  const rows = sets && sets.length
+    ? sets.map((s) => h('div', { class: 'pi crow' },
+        gameImg({ appid: s.appid, name: s.name }),
+        h('div', { class: 'cname' }, h('b', {}, s.name), h('small', {}, `Set of ${s.setSize} cards`)),
+        h('em', { class: 'cdrop', title: 'Number of complete sets you can craft' }, `${s.setsAvailable} set${s.setsAvailable !== 1 ? 's' : ''}`)))
+    : [h('div', { class: 'empty' }, 'No complete sets in inventory.')];
+  showModal(h('div', { class: 'modal cardsm' },
+    closeX(),
+    h('div', { class: 'ahead' }, h('div', {}, h('h2', {}, 'Craft guide'), h('small', {}, accName))),
+    h('div', { class: 'cinfo' }, note),
+    h('div', { class: 'plist cards-list' }, ...rows),
+    h('div', { class: 'mact' },
+      h('button', { class: 'btn red', onclick: closeModal }, 'Close'))));
+}
+
+// ================= Global game search =================
+function openGlobalSearch() {
+  let q = '';
+  const body = h('div', { class: 'plist' });
+  const runSearch = async () => {
+    if (!q) { body.replaceChildren(h('div', { class: 'empty' }, 'Type to search across all accounts.')); return; }
+    body.replaceChildren(h('div', { class: 'cinfo' }, h('span', { class: 'spin' }), 'Searching…'));
+    let r; try { r = await window.api.gamesSearch(q); } catch (e) { r = { error: e.message || String(e) }; }
+    if (r && r.error) { body.replaceChildren(h('div', { class: 'cinfo' }, h('span', { class: 'err' }, r.error))); return; }
+    body.replaceChildren();
+    if (!r.results || !r.results.length) { body.append(h('div', { class: 'empty' }, `"${q}" not found on any account.`)); return; }
+    for (const acc of r.results) {
+      body.append(h('div', { class: 'sec' }, acc.accountName + (acc.boosting ? ' · boosting' : '')));
+      for (const g of acc.games) {
+        body.append(h('div', { class: 'pi crow' },
+          gameImg(g),
+          h('div', { class: 'cname' },
+            h('b', {}, g.name),
+            h('small', {}, `${g.hours.toFixed(1)} h boosted${g.dropsLeft != null ? ' · ' + g.dropsLeft + ' drops left' : ''}${g.selected ? ' · selected' : ''}`)),
+          h('button', { class: 'btn ghost sm', onclick: () => { closeModal(); openGame(acc.accountId, g.appid); } }, 'Info')));
+      }
+    }
+  };
+  const inp = h('input', { class: 'in', placeholder: 'Game name (searches all accounts)…', oninput: (e) => { q = e.target.value.toLowerCase().trim(); runSearch(); } });
+  body.append(h('div', { class: 'empty' }, 'Type to search across all accounts.'));
+  showModal(h('div', { class: 'modal cardsm' },
+    closeX(),
+    h('h2', {}, 'Find game'),
+    inp,
+    body,
+    h('div', { class: 'mact' }, h('button', { class: 'btn red', onclick: closeModal }, 'Close'))));
+  setTimeout(() => inp.focus(), 50);
+}
+
 // ================= tabs + Achievement Manager =================
-let tab = 'boost', gamesAll = [], curGame = null, ach = [], achAcc = null;
+let tab = 'boost', gamesAll = [], curGame = null, ach = [], achAcc = null, gameStats = [], achCommitBusy = false;
 const checked = new Set();
 let bulkRunning = false, achSource = '';
 const missInfo = new Map();      // appid -> { done, total } for the games found with missing achievements
@@ -496,10 +937,11 @@ function moveInd() {
 }
 window.addEventListener('resize', moveInd);
 window.addEventListener('load', () => { moveInd(); setTimeout(moveInd, 120); });
-const TAB_ORDER = ['ach', 'boost', 'free', 'util', 'fps', 'pcmon', 'remote'];                       // left to right
+const TAB_ORDER = ['dash', 'devices', 'ach', 'boost', 'free', 'util', 'friends', 'fps', 'pcmon', 'taskmgr', 'execscan', 'remote'];                       // left to right
+let dashStart = 'overview';
 function setTab(t) {
   if (t === tab) return;
-  const el = (x) => (x === 'boost' ? $('#viewBoost') : x === 'free' ? $('#viewFree') : x === 'pcmon' ? $('#viewPc') : x === 'fps' ? $('#viewFps') : x === 'util' ? $('#viewUtil') : x === 'remote' ? $('#viewRemote') : $('#viewAch'));
+  const el = (x) => (x === 'boost' ? $('#viewBoost') : x === 'free' ? $('#viewFree') : x === 'pcmon' ? $('#viewPc') : x === 'fps' ? $('#viewFps') : x === 'util' ? $('#viewUtil') : x === 'dash' ? $('#viewDash') : x === 'remote' ? $('#viewRemote') : x === 'friends' ? $('#viewFriends') : x === 'devices' ? $('#viewDevices') : x === 'taskmgr' ? $('#viewTaskManager') : x === 'execscan' ? $('#viewExecScanner') : $('#viewAch'));
   const from = el(tab), to = el(t);
   const dir = TAB_ORDER.indexOf(t) < TAB_ORDER.indexOf(tab) ? 1 : -1; // moving to a tab on the left slides the content to the right
   from.style.setProperty('--lx', dir * 46 + 'px'); to.style.setProperty('--ex', -dir * 56 + 'px');
@@ -514,14 +956,51 @@ function setTab(t) {
     from.classList.add('hidden'); from.classList.remove('leaving');
     to.classList.remove('hidden', 'enter'); void to.offsetWidth; to.classList.add('enter');
     if (t === 'ach') loadAchGames();
+    else if (t === 'dash') { window.api.achClose(); curGame = null; buildDashboard($('#dashMain'), dashStart); dashStart = 'overview'; }
     else if (t === 'util') { window.api.achClose(); curGame = null; drawUtilPage(); }
     else if (t === 'free') { window.api.achClose(); curGame = null; window.FreeGames && window.FreeGames.show(); }
+    else if (t === 'friends') { window.api.achClose(); curGame = null; window.ManageFriends && window.ManageFriends.show(); }
+    else if (t === 'devices') { window.api.achClose(); curGame = null; window.DeviceManager && window.DeviceManager.show(); }
     else if (t === 'remote') { window.api.achClose(); curGame = null; window.RemotePC && window.RemotePC.show(); }
+    else if (t === 'taskmgr') { window.api.achClose(); curGame = null; window.WellaMon && window.WellaMon.showTaskManager(); }
+    else if (t === 'execscan') { window.api.achClose(); curGame = null; window.ExecScanner && window.ExecScanner.show(); }
     else { window.api.achClose(); curGame = null; animateNext = true; lastCardSig = ''; render(); if ((t === 'pcmon' || t === 'fps') && window.WellaMon) window.WellaMon.show(); }
   }, 170);
 }
 document.querySelectorAll('.tab').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
-if (window.__WELLA_WEB) $('#tabRemote').classList.remove('hidden');
+if (window.__WELLA_WEB) {
+  // Admin-only browser tools. The server independently enforces every protected API.
+  const adminTabs = ['#tabDevices', '#tabFriends', '#tabTaskManager', '#tabExecScanner', '#tabRemote'];
+  adminTabs.forEach((s) => { const b = $(s); if (b) b.classList.add('hidden'); });
+  const applyAdminMode = (isAdmin) => {
+    adminTabs.filter((x) => x !== '#tabFriends').forEach((s) => { const b = $(s); if (b) b.classList.toggle('hidden', !isAdmin); });
+    document.body.classList.toggle('admin-panel', !!isAdmin);
+    if (window.__applyFriendsTab) window.__applyFriendsTab(isAdmin ? window.__friendsLocal() : false);
+    const brand = document.querySelector('.brand');
+    if (isAdmin) {
+      if (brand) brand.textContent = 'Admin Panel';
+      document.title = 'Admin Panel';
+      const splashTitle = document.querySelector('.sp-title');
+      if (splashTitle) { splashTitle.textContent = 'Admin Panel'; splashTitle.setAttribute('aria-label', 'Admin Panel'); }
+      const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+      if (metaTitle) metaTitle.content = 'Admin Panel';
+    } else {
+      if (brand) brand.innerHTML = 'Wella<b>Hub</b>';
+      document.title = 'Wella Hub v0.7.0';
+      const splashTitle = document.querySelector('.sp-title');
+      if (splashTitle) { splashTitle.textContent = 'Wella Hub'; splashTitle.setAttribute('aria-label', 'Wella Hub'); }
+      const metaTitle = document.querySelector('meta[name="apple-mobile-web-app-title"]');
+      if (metaTitle) metaTitle.content = 'Wella Hub';
+      if (['remote', 'taskmgr', 'execscan', 'devices', 'friends'].includes(tab)) setTab('dash');
+    }
+    if (typeof moveInd === 'function') { moveInd(); setTimeout(moveInd, 80); }
+  };
+  window.__applyWellaAdminMode = applyAdminMode;
+  window.api.remoteIsAdmin().then(applyAdminMode).catch(() => applyAdminMode(false));
+} else {
+  // Never expose browser-admin-only tools in the normal desktop UI.
+  ['#tabDevices', '#tabTaskManager', '#tabExecScanner', '#tabRemote'].forEach((s) => { const b = $(s); if (b) b.classList.add('hidden'); });
+}
 
 async function loadAchGames() {
   const accs = await window.api.achAccounts();
@@ -531,7 +1010,7 @@ async function loadAchGames() {
     $('#aMain').replaceChildren(h('div', { class: 'empty' }, 'Add an account in Hour Booster first. Its games will show up here.'));
     return;
   }
-  if (!achAcc || !accs.find((a) => a.id === achAcc)) achAcc = accs[0].id;
+  if (!achAcc || !accs.find((a) => a.id === achAcc)) achAcc = (accs.find((a) => a.local) || accs[0]).id;
   sel.value = achAcc;
   await loadAccGames();
 }
@@ -557,11 +1036,26 @@ setInterval(async () => {
     await checkMethod();
   } catch { /* ignore */ } finally { steamWatchBusy = false; }
 }, 8000);
+const profAuto = new Map();                                        // account id -> when its achievement numbers were last refreshed (they come from a few quick requests)
+let profNote = '';                                                  // why the quick count did not work (shown on the card)
+let profScan = null;                                               // { id, i, total } while the card is counting achievements
 async function drawProfile() {
   const el = $('#aProf'); if (!el) return;
   const id = achAcc, a = accounts.find((x) => x.id === id);
   if (!a) { el.replaceChildren(); return; }
-  const paint = (i) => {
+  let info = null;
+  const scanNow = async (auto) => {                                // counts the achievements (the whole library in a few requests)
+    if (profScan) return;
+    profScan = { id, i: 0, total: 0 }; paint(info);
+    let r; try { r = await window.api.accountScan(auto === true ? { id, auto: true } : { id, missing: true }); } catch (e) { r = { error: e.message || String(e) }; }
+    profScan = null;
+    if (achAcc !== id) return;
+    profNote = r && r.note && !(info && info.ach && info.ach.scanned) ? r.note : '';
+    if (r && r.totals && info) info.ach = r.totals;
+    else { try { const i2 = await window.api.accountInfo(id); if (i2 && !i2.error) info = i2; } catch {} }
+    paint(info);
+  };
+  function paint(i) {
     const av = a.avatar ? a.avatar.replace(/["\\()]/g, '') : '';
     const chips = [];
     if (i && i.level != null) chips.push(h('span', { class: 'pchip lvl' }, 'Level ' + i.level));
@@ -570,22 +1064,42 @@ async function drawProfile() {
     if (i && i.communityBanned) chips.push(h('span', { class: 'pchip bad' }, 'Community ban'));
     if (i && i.limited) chips.push(h('span', { class: 'pchip bad' }, 'Limited'));
     if (i && i.memberSince) chips.push(h('span', { class: 'pchip' }, 'Since ' + (/\d{4}/.exec(i.memberSince) || [i.memberSince])[0]));
-    const stat = (k, v) => h('div', {}, h('b', {}, v == null || v === '' ? '—' : String(v)), h('small', {}, k));
-    const done = i && i.ach && i.ach.total ? `${i.ach.done}/${i.ach.total}` : null;
-    const pc = i && i.ach && i.ach.total ? Math.round(i.ach.done / i.ach.total * 100) : null;
+    const stat = (k, v) => h('div', {}, h('b', {}, v == null || v === '' ? '\u2014' : String(v)), h('small', {}, k));
+    const t = i && i.ach ? i.ach : null, counted = !!(t && t.scanned);
+    const pc = t && t.total ? Math.round(t.done / t.total * 100) : null;
     const bad = !!(i && (i.vacBanned || i.gameBans || i.communityBanned));
     el.classList.toggle('banned', bad);
-    el.replaceChildren(
+    const ownGames = i ? i.games : (a.games || []).length;
+    let scanLine = null;
+    if (profScan && profScan.id === id) scanLine = h('div', { class: 'pscan' }, h('span', { class: 'spin' }), h('span', { id: 'profScanTxt' }, profScan.total ? `Counting achievements ${profScan.i}/${profScan.total}\u2026` : 'Counting achievements\u2026'));
+    else if (t && t.scanned < t.of) scanLine = h('div', { class: 'pscan', style: 'flex-wrap:wrap' }, h('span', {}, `Counted ${t.scanned} of ${t.of} games`), h('button', { class: 'btn ghost sm', onclick: () => scanNow(false) }, 'Count the rest'));
+    const noteLine = profNote && !(profScan && profScan.id === id) ? h('div', { class: 'pscan' }, h('span', {}, 'Steam local: ' + profNote)) : null;
+    const kids = [
       av ? h('i', { class: 'pbg', style: `background-image:url("${av}")` }) : null,
       h('div', { class: 'prow' },
         a.avatar ? h('img', { class: 'pav', src: a.avatar, draggable: 'false' }) : h('div', { class: 'pav' }),
         h('div', { class: 'pwho' }, h('b', {}, a.personaName || a.accountName), h('small', {}, a.accountName))),
       chips.length ? h('div', { class: 'pchips' }, chips) : null,
-      h('div', { class: 'pstats' }, stat('Games', i ? i.games : (a.games || []).length), done ? stat('Achievements', done) : null, i && i.ach && i.ach.perfect ? stat('100% games', i.ach.perfect) : null),
-      pc != null ? h('div', { class: 'pbar', title: pc + '% of scanned achievements unlocked' }, h('i', { style: `width:${pc}%` })) : null);
-  };
+      h('div', { class: 'pstats' },
+        stat('Games', ownGames),
+        stat('Achievements', counted && t.total ? `${t.done}/${t.total}` : null),
+        stat('Completed (100%)', counted ? `${t.perfect}/${t.games}` : null),
+        stat('No achievements', counted ? t.none : null)),
+      pc != null ? h('div', { class: 'pbar', title: pc + '% of counted achievements unlocked' }, h('i', { style: `width:${pc}%` })) : null,
+      scanLine, noteLine
+    ];
+    el.replaceChildren(...kids.filter(Boolean));                   // replaceChildren(null) would print the word "null"
+  }
+  window._profPaint = () => paint(info);
+  window._profScanUpdated = (scanId, totals) => { if (scanId === id && achAcc === id && info && totals) { info.ach = totals; paint(info); } };
   paint(null);
-  try { const i = await window.api.accountInfo(id); if (i && !i.error && achAcc === id) paint(i); } catch {}
+  try {
+    const i = await window.api.accountInfo(id);
+    if (i && !i.error && achAcc === id) {
+      info = i; paint(i);
+      if (Date.now() - (profAuto.get(id) || 0) > 120000) { profAuto.set(id, Date.now()); scanNow(true); }   // display only counts from completed local Steamworks reads
+    }
+  } catch {}
 }
 async function loadAccGames() {
   drawProfile();
@@ -614,8 +1128,10 @@ function drawGameList(anim) {
   updateBulk();
 }
 function updateBulk() {
-  const b = $('#gBulk'); b.disabled = bulkRunning || finding || !checked.size; const mb = $('#gMissing'); if (mb && !finding) mb.disabled = bulkRunning;
-  b.textContent = checked.size ? `Unlock all achievements (${checked.size} game${checked.size > 1 ? 's' : ''})` : 'Unlock all achievements';
+  const unlock = $('#gUnlock'), lock = $('#gLock'), disabled = bulkRunning || finding || !checked.size;
+  if (unlock) { unlock.disabled = disabled; unlock.textContent = checked.size ? `Unlock (${checked.size})` : 'Unlock'; unlock.title = `Unlock achievements in ${checked.size} selected games`; }
+  if (lock) { lock.disabled = disabled; lock.textContent = checked.size ? `Lock (${checked.size})` : 'Lock'; lock.title = `Lock achievements in ${checked.size} selected games`; }
+  const mb = $('#gMissing'); if (mb && !finding) mb.disabled = bulkRunning;
 }
 $('#gSearch').addEventListener('input', drawGameList);
 $('#gAll').addEventListener('click', () => {
@@ -652,27 +1168,45 @@ async function runFind(resume) {
 }
 $('#gMissing').addEventListener('click', () => { if (finding) { window.api.achFindCancel(); $('#gMissing').disabled = true; return; } runFind(false); });
 $('#gResume').addEventListener('click', () => runFind(true));
-$('#gBulk').addEventListener('click', async () => {
+$('#gStopAll').addEventListener('click', async (e) => {
+  const button = e.currentTarget;
+  button.disabled = true;
+  try {
+    await window.api.achStopAll();
+    if (finding) $('#gMissing').disabled = true;
+    const bulkStop = bulkPanel && bulkPanel.head && bulkPanel.head.querySelector('.btn.stop');
+    if (bulkStop) { bulkStop.disabled = true; bulkStop.textContent = 'Stopping…'; }
+    toast('Stop requested. The unfinished work is saved so it can be checked again.', 'ok');
+  } catch (error) { toast(error.message || String(error), 'bad'); }
+  finally { button.disabled = false; }
+});
+async function runBulkAchievements(value) {
   const ids = gamesAll.filter((g) => checked.has(g.appid)).map((g) => g.appid);
-  if (!ids.length || !confirm(`Unlock every achievement in ${ids.length} game${ids.length > 1 ? 's' : ''}?`)) return;
+  const verb = value ? 'Unlock' : 'Lock';
+  if (!ids.length || !confirm(`${verb} every achievement in ${ids.length} game${ids.length > 1 ? 's' : ''}?`)) return;
   bulkRunning = true; updateBulk(); curGame = null; drawGameList();
   const bar = h('i', { style: 'width:0%' }), line = h('small', {}, 'Connecting…'), rows = h('div', {});
-  const cancel = h('button', { class: 'btn stop', onclick: () => window.api.achCancelBulk() }, 'Stop');
-  const head = h('div', { class: 'ahead' }, h('div', {}, h('h2', {}, 'Unlocking achievements'), line, h('div', { class: 'bar' }, bar)), h('div', { class: 'btns' }, cancel));
+  const cancel = h('button', { class: 'btn stop', onclick: (e) => { e.currentTarget.disabled = true; e.currentTarget.textContent = 'Stopping\u2026'; window.api.achCancelBulk(); } }, 'Stop');
+  const head = h('div', { class: 'ahead' }, h('div', {}, h('h2', {}, `${verb}ing achievements`), line, h('div', { class: 'bar' }, bar)), h('div', { class: 'btns' }, cancel));
   bulkPanel = { accId: achAcc, head, rows, finished: false };
   $('#aMain').replaceChildren(head, rows);
   const nameOf = (id) => (gamesAll.find((g) => g.appid === id) || {}).name || id;
-  window._bulkUI = { bar, line, rows, nameOf };
-  const res = await window.api.achBulk({ accountId: achAcc, appids: ids, value: true });
+  window._bulkUI = { bar, line, rows, nameOf, value };
+  let res;
+  try { res = await window.api.achBulk({ accountId: achAcc, appids: ids, value }); }
+  catch (e) { res = { error: e.message || String(e) }; }
   bulkRunning = false; updateBulk(); cancel.remove(); window._bulkUI = null; checkMethod();
   const stillThere = () => tab === 'ach' && $('#aMain').contains(head);
   setTimeout(() => { if (bulkPanel && bulkPanel.head === head) { bulkPanel.finished = true; if (stillThere()) { /* you are looking at it: it stays until you pick something else */ bulkPanel = null; } } }, 0);
   if (res.error) { line.textContent = ''; rows.append(h('div', { class: 'empty err' }, res.error)); return; }
   const R = res.results, cnt = (f) => R.filter(f).length;
-  const bits = [[cnt((r) => r.ok && !r.note), 'unlocked'], [cnt((r) => r.note === 'already complete'), 'already complete'], [cnt((r) => String(r.note || '').startsWith('no achievements')), 'without achievements'], [cnt((r) => !r.ok), 'failed']].filter((x) => x[0]);
-  line.textContent = `Finished${R.length < ids.length ? ' (stopped early)' : ''}: ` + (bits.map((x) => `${x[0]} ${x[1]}`).join(' · ') || 'nothing to do') + '.';
+  const bits = [[cnt((r) => r.ok && !r.note), value ? 'unlocked' : 'locked'], [cnt((r) => r.note === (value ? 'already complete' : 'already locked')), value ? 'already complete' : 'already locked'], [cnt((r) => String(r.note || '').startsWith('no achievements')), 'without achievements'], [cnt((r) => !r.ok), 'failed']].filter((x) => x[0]);
+  line.textContent = `Finished${res.aborted ? ' (stopped early)' : ''}: ` + (bits.map((x) => `${x[0]} ${x[1]}`).join(' · ') || 'nothing to do') + (res.failedAfterRetry ? ` · ${res.failedAfterRetry} still failed after one retry (hidden)` : '') + '.';
+  drawProfile(); // reload saved per-game counts so Completed and Achievements stay current
   if (res.aborted) rows.prepend(h('div', { class: 'empty err' }, res.aborted));
-});
+}
+$('#gUnlock').addEventListener('click', () => runBulkAchievements(true));
+$('#gLock').addEventListener('click', () => runBulkAchievements(false));
 window.api.onAchProgress((m) => {
   if (m.stage === 'find') { const b = $('#gMissing'); if (finding && b) { b.textContent = `Stop (${m.i}/${m.total})`; $('#gFind').textContent = `${m.i}/${m.total} read \u00b7 ${m.missing} with missing achievements`; } return; }
   const u = window._bulkUI; if (!u) { if (m.stage === 'note') { if (finding) { const f = $('#gFind'); if (f) f.textContent = m.note; } else toast(m.note, 'ok'); } return; }
@@ -682,28 +1216,39 @@ window.api.onAchProgress((m) => {
     u.bar.style.width = (m.i / m.total * 100) + '%';
     const r = m.result;
     u.rows.append(h('div', { class: 'pgrow' }, h('span', {}, u.nameOf(m.appid)),
-      r.ok ? h('small', { class: r.note ? '' : 'ok' }, r.note ? (r.total ? `${r.done}/${r.total} \u00b7 ${r.note}` : r.note) : `${r.done}/${r.total} unlocked` + (r.skipped ? ` (${r.skipped} could not be changed)` : '')) : h('small', { class: 'err' }, r.error)));
-  }
+      r.ok ? h('small', { class: r.note ? '' : 'ok' }, r.note ? (r.total ? `${r.done}/${r.total} \u00b7 ${r.note}` : r.note) : `${r.done}/${r.total} ${u.value ? 'unlocked' : 'locked'}` + (r.skipped ? ` (${r.skipped} could not be changed)` : '')) : h('small', { class: 'err' }, r.error)));
+  } else if (m.stage === 'checked') u.bar.style.width = (m.i / m.total * 100) + '%';
 });
 
 async function openAchGame(g) {
-  curGame = g; achQuery = ''; drawGameList();
+  curGame = g; achQuery = ''; ach = []; gameStats = []; drawGameList();
   $('#aMain').replaceChildren(h('div', { class: 'empty' }, h('span', { class: 'spin' }), 'Connecting to Steam…'));
   const r = await window.api.achOpen({ accountId: achAcc, appid: g.appid });
   if (!curGame || curGame.appid !== g.appid) return;
   if (r.error) { $('#aMain').replaceChildren(h('div', { class: 'empty err' }, r.error, h('div', {}, diagBtn()))); return; }
-  ach = r.achievements; achSource = r.source; drawAch(true);
+  ach = Array.isArray(r.achievements) ? r.achievements : []; gameStats = Array.isArray(r.statistics) ? r.statistics : []; achSource = r.source; drawAch(true);
   if (window.matchMedia('(max-width:820px)').matches) setTimeout(() => $('#aMain').scrollIntoView({ behavior: 'smooth', block: 'start' }), 60); // phone: jump to the achievements
 }
-function applyStates(states) { for (const a of ach) if (a.name in states) { if (states[a.name] && !a.unlocked) a._lit = true; a.unlocked = states[a.name]; } drawAch(); }
-async function setAch(names, value, instant = false) {
+function pendingAchChanges() { return ach.filter((a) => a._desired !== undefined && !!a._desired !== !!a.unlocked).map((a) => ({ name: a.name, value: !!a._desired })); }
+function pendingStatChanges() { return gameStats.filter((s) => s._desired !== undefined && Number.isFinite(Number(s._desired)) && Number(s._desired) !== Number(s.value)).map((s) => ({ name: s.name, value: s.type === 'int' ? Math.round(Number(s._desired)) : Number(s._desired) })); }
+function stageAch(name, value) { const a = ach.find((x) => x.name === name); if (!a) return; a._desired = !!value; drawAch(); }
+function stageAllAch(value) { for (const a of ach) a._desired = !!value; drawAch(); }
+async function commitAchChanges() {
+  if (!curGame || achCommitBusy) return;
+  const changes = pendingAchChanges(), statChanges = pendingStatChanges();
+  if (!changes.length && !statChanges.length) { toast('No changes to commit.', 'ok'); return; }
+  achCommitBusy = true; drawAch();
   let r;
-  try { r = await window.api.achSet({ accountId: achAcc, appid: curGame.appid, names, value, instant, all: ach.map((a) => a.name) }); }
-  catch (e) { toast(String(e.message || e), 'bad'); return; }
-  if (r.error) { toast(r.error, 'bad'); return; }
-  applyStates(r.states);
-  const n = names.length - (r.skipped || 0);
-  toast(`${value ? 'Unlocked' : 'Locked'} ${n} achievement${n === 1 ? '' : 's'}` + (r.skipped ? `. ${r.skipped} could not be changed.` : '') + (r.method === 'steam' ? ' (through the Steam app)' : ''), 'ok');
+  try { r = await window.api.achSet({ accountId: achAcc, appid: curGame.appid, changes, statChanges }); }
+  catch (e) { r = { error: e.message || String(e) }; }
+  achCommitBusy = false;
+  if (r && r.error) { drawAch(); toast(r.error, 'bad'); return; }
+  if (Array.isArray(r.achievements)) ach = r.achievements;
+  if (Array.isArray(r.statistics)) gameStats = r.statistics;
+  for (const a of ach) if (r.states && a.name in r.states) a.unlocked = !!r.states[a.name];
+  drawAch();
+  const skipped = Number(r.skipped) || 0;
+  toast(`Committed ${Number(r.changedAchievementCount) || 0} achievements and ${Number(r.changedStatCount) || 0} stats through Steam${skipped ? `; ${skipped} achievement${skipped === 1 ? '' : 's'} were refused` : ''}.`, skipped ? 'bad' : 'ok');
 }
 
 let achFilter = 'all', achQuery = '';
@@ -722,6 +1267,7 @@ async function runLocal(appid, action, confirmText) {
 }
 function drawAch(anim) {
   const done = ach.filter((a) => a.unlocked).length;
+  const pendingCount = pendingAchChanges().length + pendingStatChanges().length;
   const main = $('#aMain'); const scroll = main.scrollTop; main.replaceChildren();
   const loc = h('span', { class: 'locbtns' });
   {                                                                 // The phone can launch installed games through the authenticated PC bridge.
@@ -736,12 +1282,12 @@ function drawAch(anim) {
   }
   main.append(h('div', { class: 'ahead' },
     gameImg(curGame),
-    h('div', {}, h('h2', {}, curGame.name), h('small', {}, `${done} of ${ach.length} unlocked` + (achSource === 'web' ? ' \u00b7 read without starting the game' : '')),
+    h('div', {}, h('h2', {}, curGame.name), h('small', {}, `${done} of ${ach.length} unlocked \u00b7 local Steam client`),
       h('div', { class: 'bar' }, h('i', { style: `width:${ach.length ? (done / ach.length) * 100 : 0}%` }))),
     h('div', { class: 'btns' },
-      h('button', { class: 'btn red', onclick: () => { if (confirm('Unlock all achievements for this game?')) setAch(ach.map((a) => a.name), true); } }, 'Unlock all'),
-      h('button', { class: 'btn red', title: 'Sends all eligible achievements in one operation. Steam may still reject server-only achievements.', onclick: () => { if (confirm('Unlock all eligible achievements for this game in one fast operation? Steam may reject server-only achievements.')) setAch(ach.filter((a) => !a.unlocked).map((a) => a.name), true, true); } }, 'Unlock all instantly'),
-      h('button', { class: 'btn stop', onclick: () => { if (confirm('Lock all achievements for this game?')) setAch(ach.map((a) => a.name), false); } }, 'Lock all'),
+      h('button', { class: 'btn red', onclick: () => stageAllAch(true) }, 'Unlock all'),
+      h('button', { class: 'btn stop', onclick: () => stageAllAch(false) }, 'Lock all'),
+      h('button', { id: 'aCommit', class: 'btn red', disabled: achCommitBusy || !pendingCount ? 'disabled' : null, onclick: commitAchChanges }, achCommitBusy ? 'Committing\u2026' : `Commit Changes${pendingCount ? ` (${pendingCount})` : ''}`),
       loc, diagBtn())));
   const list = h('div', { class: 'alist' + (anim ? ' anim' : '') });
   const fillList = () => {
@@ -757,11 +1303,14 @@ function drawAch(anim) {
       const ico = a.icon ? h('div', { class: 'aico' + (a.unlocked && !lit ? ' on' : '') },
         h('img', { class: 'g', src: a.iconGray || a.icon, loading: 'lazy' }), h('img', { class: 'c', src: a.icon, loading: 'lazy' })) : h('div', { class: 'ph' });
       if (lit) requestAnimationFrame(() => requestAnimationFrame(() => { ico.classList.add('on', 'lit'); }));
-      list.append(h('div', { class: 'ai' + (a.unlocked ? ' done' : ''), style: `--j:${Math.min(aj++, 14)}` },
+      const desired = a._desired === undefined ? !!a.unlocked : !!a._desired;
+      const staged = desired !== !!a.unlocked;
+      const actionLabel = staged ? `Pending ${desired ? 'unlock' : 'lock'}` : (a.unlocked ? 'Lock' : 'Unlock');
+      list.append(h('div', { class: 'ai' + (a.unlocked ? ' done' : '') + (staged ? ' pending' : ''), style: `--j:${Math.min(aj++, 14)}` },
         ico,
-        h('div', { class: 't' }, h('b', {}, a.displayName, a.protected ? h('span', { class: 'ptag', title: 'The game marks this achievement as server-only, Steam may refuse to change it from outside the game.' }, 'server-only') : null), h('small', {}, a.description || (a.hidden ? 'Hidden achievement' : a.name))),
+        h('div', { class: 't' }, h('b', {}, a.displayName, a.protected ? h('span', { class: 'ptag', title: 'Steam marks this achievement as protected; the game may refuse changes.' }, 'protected') : null), h('small', {}, a.description || (a.hidden ? 'Hidden achievement' : a.name))),
         h('div', { class: 'pc' }, a.percent != null ? a.percent.toFixed(1) + '%' : ''),
-        h('button', { class: 'btn sm ' + (a.unlocked ? 'stop' : 'start'), onclick: () => setAch([a.name], !a.unlocked) }, a.unlocked ? 'Lock' : 'Unlock')));
+        h('button', { class: 'btn sm ' + (desired ? 'stop' : 'start'), title: staged ? 'This change is staged. Press Commit Changes to send it to Steam.' : 'Stage the change for Steam.', onclick: () => stageAch(a.name, !desired) }, actionLabel)));
     }
     if (!list.children.length) list.append(h('div', { class: 'empty' }, ach.length ? 'No achievement matches.' : 'No achievements.'));
   };
@@ -770,6 +1319,19 @@ function drawAch(anim) {
   main.append(h('div', { class: 'atools' },
     h('input', { class: 'in', placeholder: 'Search achievements', value: achQuery, oninput: (e) => { achQuery = e.target.value; fillList(); } }),
     h('div', { class: 'chips' }, chipEls)));
+  if (gameStats.length) {
+    const panel = h('details', { class: 'samstats' }, h('summary', {}, `Statistics (${gameStats.length})`));
+    const rows = h('div', { class: 'samstatlist' });
+    for (const s of gameStats) {
+      const input = h('input', { class: 'in sm', type: 'number', step: s.type === 'int' ? '1' : 'any', value: s._desired === undefined ? s.value : s._desired, oninput: (e) => {
+        s._desired = e.target.value;
+        const button = $('#aCommit'); if (button) button.disabled = achCommitBusy || !(pendingAchChanges().length + pendingStatChanges().length);
+        if (button && !achCommitBusy) button.textContent = `Commit Changes (${pendingAchChanges().length + pendingStatChanges().length})`;
+      } });
+      rows.append(h('label', { class: 'samstatrow' }, h('span', {}, h('b', {}, s.displayName || s.name), h('small', {}, `${s.type === 'int' ? 'Integer' : 'Float'} \u00b7 ${s.name}`)), input));
+    }
+    panel.append(rows); main.append(panel);
+  }
   fillList();
   main.append(list); main.scrollTop = scroll;
 }
@@ -786,11 +1348,10 @@ const ico = (svg) => { const d = document.createElement('div'); d.innerHTML = sv
 const ICON_GEAR = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
 const ICON_DISCORD = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 5.5A16 16 0 0 0 16 4.2l-.5 1a14 14 0 0 0-7 0l-.5-1A16 16 0 0 0 4 5.5C1.5 9.300 .9 13 1.200 16.600a16 16 0 0 0 4.900 2.500l1.100-1.800a10 10 0 0 1-1.700-.8l.4-.3a11.500 11.500 0 0 0 11.200 0l.4.300a10 10 0 0 1-1.700.8l1.100 1.800a16 16 0 0 0 4.900-2.500C23.100 12.500 22 8.800 20 5.500z"/><circle cx="8.500" cy="12.500" r="1.300"/><circle cx="15.500" cy="12.500" r="1.300"/></svg>';
 
-const ICON_UTIL = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>';
 const ICON_PHONE = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg>';
 
 // ================= Utility tab (player stats, YouTube downloader, achievement timings) =================
-const US = { sub: 'players', q: '', res: null, busy: false, keys: { faceit: false, leetify: false }, ytUrl: '', yt: null, fmt: 'mp4', height: 0, dir: '', run: false, last: '' };
+const US = { sub: 'players', q: '', res: null, busy: false, keys: { faceit: false, leetify: false }, ytUrl: '', yt: null, fmt: 'mp4', height: 0, dir: '', cookieBrowser: '', run: false, last: '' };
 if (window.api.onUtilProgress) window.api.onUtilProgress((m) => {
   const st = document.getElementById('ytStat'), bar = document.getElementById('ytBar');
   if (m.message && st) st.textContent = m.message;
@@ -932,6 +1493,19 @@ function utilityTab(redraw) {
     };
     url.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !US.run) analyze(e.target.nextSibling || e.target); });
     kids.push(h('div', { class: 'lk' }, url, h('button', { class: 'btn red sm', onclick: (e) => analyze(e.currentTarget), disabled: US.run ? 'disabled' : null }, 'Check link')));
+    if (!web) {
+      const browsers = [['', 'Do not use browser login'], ['chrome', 'Google Chrome'], ['edge', 'Microsoft Edge'], ['firefox', 'Firefox'], ['brave', 'Brave'], ['opera', 'Opera'], ['vivaldi', 'Vivaldi']];
+      const browser = h('select', { class: 'in', disabled: US.run ? 'disabled' : null, onchange: async (e) => {
+        const previous = US.cookieBrowser; US.cookieBrowser = e.target.value;
+        try {
+          const r = await window.api.ytCookieBrowserSet(US.cookieBrowser);
+          if (r && r.error) throw new Error(r.error);
+          toast(US.cookieBrowser ? 'YouTube browser login saved for music and downloads.' : 'YouTube browser login turned off.', 'ok');
+        } catch (err) { US.cookieBrowser = previous; toast(err.message || String(err), 'bad'); paintYt(); }
+      } }, browsers.map(([v, label]) => h('option', { value: v, selected: v === US.cookieBrowser ? 'selected' : null }, label)));
+      kids.push(h('div', { class: 'setrow' }, h('b', {}, 'YouTube sign-in for music'), browser,
+        h('small', { style: muted }, 'If YouTube says “confirm you’re not a bot”, choose the browser where you are signed in to YouTube. yt-dlp reads that browser session on this PC for music and downloads; it is not sent to Discord.')));
+    }
     // where the files go: always visible (not only after "Check link"), with a folder picker and a button that opens it
     kids.push(h('div', { class: 'setrow' }, h('b', {}, 'Save to'),
       h('div', { class: 'lk' }, h('input', { class: 'in', readonly: 'readonly', value: US.dir || '', title: US.dir || '' }),
@@ -966,25 +1540,23 @@ function utilityTab(redraw) {
       h('button', { class: 'btn ghost sm', onclick: async () => { try { await navigator.clipboard.writeText(await window.api.ytLog()); toast('Log copied'); } catch (e) { toast('Could not copy: ' + e.message, 'bad'); } } }, 'Copy log (send it to me)'));
     yt.replaceChildren(...kids);
   };
-  if (!web) { window.api.ytState().then((s) => { US.dir = s.dir || ''; paintYt(); }).catch(() => {}); paintYt(); }
+  if (!web) { window.api.ytState().then((s) => { US.dir = s.dir || ''; US.cookieBrowser = s.cookieBrowser || ''; paintYt(); }).catch(() => {}); paintYt(); }
 
   // ---- Achievement Manager timings ----
   const pace = h('div', { class: 'pace' });
   const paintPace = async () => {
     let r; try { r = await window.api.achPaceGet(); } catch { pace.replaceChildren(h('small', { style: muted }, 'Could not load the timings.')); return; }
     const ins = {};
-    const num = (key) => { const i = h('input', { class: 'in', type: 'number', min: '0.00000000000000001', max: '99999999999999', step: 'any', value: String(r.values[key]), style: 'width:120px;text-align:center' }); ins[key] = i; return i; };
+    const num = (key) => { const isTime = /^(achGap|rest|gameGap)/.test(key); const i = h('input', { class: 'in', type: 'number', min: isTime ? '0.001' : '1', max: isTime ? '0.1' : '99999999999999', step: 'any', value: String(r.values[key]), style: 'width:120px;text-align:center' }); ins[key] = i; return i; };
     const row = (label, k, unit, step) => h('div', { class: 'setrow' }, h('b', {}, label),
       h('div', { class: 'lk' }, num(k + 'Min'), h('small', {}, 'to'), num(k + 'Max'), h('small', {}, unit)));
     const read = () => { const o = {}; for (const k in ins) o[k] = ins[k].value; return o; };
-    const cap = h('input', { class: 'in', type: 'number', min: '1', max: '99999999999999', step: 'any', value: String(r.values.hourlyCap), style: 'width:120px;text-align:center' }); ins.hourlyCap = cap;
     pace.replaceChildren(
-      h('small', { style: muted }, 'How slowly the Achievement Manager unlocks. Each pause is a random time between the two numbers, so it never looks like a bot. Any value from 0.00000000000000001 up to 99999999999999 is accepted (maximum per hour: 1 to 99999999999999). Lower numbers = faster but riskier for the account. Reset puts back the safe, fast defaults.'),
+      h('small', { style: muted }, 'Safe Mode uses very short pauses (up to 0.1 seconds). There is no hourly achievement cap. Achievement progress is saved locally for this account and reused on the next launch. Reset restores the defaults.'),
       row('Between two achievements', 'achGap', 'seconds', 0.5),
       row('Achievements in a row before a rest', 'burst', 'achievements', 1),
       row('Rest after each burst', 'rest', 'seconds', 5),
       row('Between two games (Unlock all)', 'gameGap', 'seconds', 1),
-      h('div', { class: 'setrow' }, h('b', {}, 'Maximum per hour'), h('div', { class: 'lk' }, cap, h('small', {}, 'achievements'))),
       h('div', { class: 'lk' },
         h('button', { class: 'btn red sm', onclick: async () => { try { await window.api.achPaceSet(read()); toast('Timings saved', 'ok'); } catch (e) { toast(e.message || String(e), 'bad'); } paintPace(); } }, 'Save timings'),
         h('button', { class: 'btn ghost sm', onclick: async () => { try { await window.api.achPaceReset(); toast('Back to the safe default timings', 'ok'); } catch (e) { toast(e.message || String(e), 'bad'); } paintPace(); } }, 'Reset to default')));
@@ -992,7 +1564,7 @@ function utilityTab(redraw) {
   paintPace();
 
   paintOut();
-  const SUBS = [['players', 'Player stats'], ['compare', 'Profile Compare'], ['inv', 'Inventory'], ['health', 'Account Health'], ['pass', 'Password Generator'], ['speed', 'Speed Test'], ['pcmp', 'Compare players'], ['hist', 'Rank history'], ['badge', 'Badges'], ['sale', 'Steam sales'], ['daily', 'Daily report'], ['pchealth', 'PC health'], ['hook', 'Webhook'], ['yt', 'YouTube'], ['pace', 'Timings']];
+  const SUBS = [['players', 'Player stats'], ['compare', 'Profile Compare'], ['inv', 'Inventory'], ['health', 'Account Health'], ['pass', 'Password Generator'], ['speed', 'Speed Test'], ['pcmp', 'Compare players'], ['hist', 'Rank history'], ['badge', 'Badges'], ['sale', 'Steam sales'], ['daily', 'Daily report'], ['pchealth', 'PC health'], ['yt', 'YouTube'], ['pace', 'Timings']];
   if (!SUBS.some((s) => s[0] === US.sub)) US.sub = 'players';
   const T = window.WellaTools || {};
   const body = {
@@ -1010,7 +1582,6 @@ function utilityTab(redraw) {
     health: () => (T.health ? T.health() : []),
     pass: () => (T.password ? T.password() : []),
     speed: () => (T.speed ? T.speed() : []),
-    hook: () => (T.webhook ? T.webhook() : []),
     yt: () => [
     h('b', {}, 'YouTube downloader'),
     web ? h('small', { style: muted }, 'The downloader only works in the app on the PC, because the files are saved on the PC.')
@@ -1038,9 +1609,34 @@ function applyFreeTab(on) {
   if (!on && tab === 'free') setTab('boost');
   moveInd(); setTimeout(moveInd, 60);
 }
+function applyAchTab(on) {
+  const b = document.getElementById('tabAch'); if (!b) return;
+  b.classList.toggle('hidden', !on);
+  if (!on && tab === 'ach') setTab('boost');
+  moveInd(); setTimeout(moveInd, 60);
+}
+function applyDashTab(on) {
+  const b = document.getElementById('tabDash'); if (!b) return;
+  b.classList.toggle('hidden', !on);
+  if (!on && tab === 'dash') setTab('boost');
+  moveInd(); setTimeout(moveInd, 60);
+}
+// Manage Friends is an admin-only tab on the web, so there it also stays hidden for everybody who is not the administrator
+function applyFriendsTab(on) {
+  const b = document.getElementById('tabFriends'); if (!b) return;
+  const adminOnly = !!window.__WELLA_WEB && !document.body.classList.contains('admin-panel');
+  b.classList.toggle('hidden', !on || adminOnly);
+  if ((!on || adminOnly) && tab === 'friends') setTab('boost');
+  moveInd(); setTimeout(moveInd, 60);
+}
+window.__applyFriendsTab = applyFriendsTab;
+window.__friendsLocal = () => { try { return localStorage.getItem('wella-admin-tab-friendsTab') !== '0'; } catch { return true; } };
+window.api.getPrefs().then((p) => applyFriendsTab(window.__WELLA_WEB ? window.__friendsLocal() : p.friendsTab !== false)).catch(() => {});
+window.api.getPrefs().then((p) => applyDashTab(p.dashTab !== false)).catch(() => {});
+window.api.getPrefs().then((p) => applyAchTab(p.achTab !== false)).catch(() => {});
 window.api.getPrefs().then((p) => applyUtilTab(p.utilTab !== false)).catch(() => {});
 window.api.getPrefs().then((p) => applyFreeTab(p.freeTab !== false)).catch(() => {});
-if (window.api.onPrefs) window.api.onPrefs((p) => { if (p && 'utilTab' in p) applyUtilTab(p.utilTab !== false); if (p && 'freeTab' in p) applyFreeTab(p.freeTab !== false); });   // the PC and the phone follow each other
+if (window.api.onPrefs) window.api.onPrefs((p) => { if (p && 'utilTab' in p) applyUtilTab(p.utilTab !== false); if (p && 'freeTab' in p) applyFreeTab(p.freeTab !== false); if (p && 'dashTab' in p) applyDashTab(p.dashTab !== false); if (p && 'achTab' in p) applyAchTab(p.achTab !== false); if (p && 'friendsTab' in p && !window.__WELLA_WEB) applyFriendsTab(p.friendsTab !== false); });   // the PC and the phone follow each other
 // The Utility tab page: the same content that used to live in Settings > Utility.
 function paintUtilPage() {
   const el = document.getElementById('utilBody'); if (!el) return;
@@ -1090,11 +1686,12 @@ async function openSettings() {
   let prefs = await window.api.getPrefs();
   try { await window.WellaMon.load(); } catch {}
   try { US.keys = await window.api.utilKeysGet(); } catch {}
-  let WG = { cfg: {}, accounts: [] }, FG = { cfg: {}, list: [], accounts: [] };
+  let WG = { cfg: {}, accounts: [] };
   try { WG = await window.api.widgetGet(); } catch {}
-  try { FG = await window.api.freeGet(); } catch {}
   try { const ac = window.WellaTheme.get().accent; if (WG.cfg && WG.cfg.enabled && WG.cfg.accent !== ac) WG = { ...WG, cfg: (await window.api.widgetSet({ accent: ac })).cfg }; } catch {}
   const muted = 'color:var(--mut)';
+  // collapsible section helper: used by BOTH the General and the Discord tab (it used to live inside generalTab, so the Discord tab crashed with "S is not defined")
+  const S = (id, title, kids, open) => window.WellaExtra.section(id, title, kids, open);
   const dirty = () => DC_FIELDS.some((k) => (d[k] ?? '') !== (saved[k] ?? ''));
   const statusText = () => dirty() ? 'Unsaved changes. Press Save.' : !saved.enabled ? 'Off' : !saved.appId ? 'Paste your Application ID from the Discord Developer Portal.' : saved.connected ? 'Saved. Connected to Discord.' : 'Saved. Not connected: open the Discord desktop app (not the browser version).';
   const refreshStatus = () => { const s = document.getElementById('dcStatus'); if (s) { s.textContent = statusText(); s.style.color = dirty() ? 'var(--red)' : 'var(--mut)'; } };
@@ -1202,75 +1799,89 @@ async function openSettings() {
     return h('div', { class: 'wsec' }, kids.filter(Boolean));
   };
 
-  // ---- Free games tracker ----
-  const freeSection = () => {
-    const c = FG.cfg || {}, accs = FG.accounts || [];
-    const upd = async (p) => { try { FG = await window.api.freeSet(p); } catch (e) { toast(e.message || 'Error', 'bad'); } renderTab(null); };
-    const chk = (label, key, hint) => h('label', { class: 'chk', title: hint || '' }, h('input', { type: 'checkbox', checked: c[key] ? 'checked' : null, onchange: (e) => upd({ [key]: e.target.checked }) }), label);
-    const chosen = new Set(c.accounts || []);
-    const kids = [
-      h('b', {}, 'Free games tracker'),
-      h('small', { style: muted }, 'Finds Steam games that are free to keep for a limited time (normally paid) and tells you. Free-to-play games are ignored.'),
-      chk('Notify me when a game becomes free', 'notify'),
-      chk('Add free games to my account automatically', 'autoClaim', 'Same as pressing "Add to account" on the store page'),
-      accs.length > 1 ? h('div', { class: 'setrow' },
-        h('small', { style: muted }, chosen.size ? 'Added to the ticked accounts only:' : 'Added to all accounts (tick some to limit it):'),
-        h('div', { class: 'wgrid' }, accs.map((a) => h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: chosen.has(a.id) ? 'checked' : null, onchange: (e) => { const s = new Set(chosen); e.target.checked ? s.add(a.id) : s.delete(a.id); upd({ accounts: [...s] }); } }), a.name)))) : null
-    ];
-    const list = h('div', { class: 'fglist' });
-    const paint = () => {
-      const L = FG.list || [];
-      const head = FG.busy ? 'Checking the Steam store\u2026' : FG.error ? 'Could not check: ' + FG.error : FG.at ? `${L.length ? L.length + ' free now' : 'Nothing free right now'} \u00b7 checked ${agoText(FG.at)}` : 'Not checked yet.';
-      list.replaceChildren(h('small', { style: FG.error ? 'color:var(--red)' : muted }, head), ...L.map((g) => {
-        const st = g.status || {}, ids = Object.keys(st);
-        const done = ids.length && ids.every((i) => st[i] && (st[i].r === 'ok' || st[i].r === 'owned'));
-        const bad = ids.map((i) => st[i]).find((x) => x && x.r === 'error');
-        return h('div', { class: 'fgitem' },
-          g.image ? h('img', { src: g.image, alt: '', draggable: 'false' }) : null,
-          h('div', { class: 'fgi' }, h('b', {}, g.name), h('small', { style: muted }, (g.price ? 'Normally ' + g.price : 'Limited time') + (g.endsAt ? ' \u00b7 ends ' + new Date(g.endsAt * 1000).toLocaleDateString() : ''),
-            done ? ' \u00b7 \u2713 in your account' : bad ? ' \u00b7 failed: ' + (bad.text || 'error') : '')),
-          h('button', { class: 'btn ghost sm', onclick: () => window.open('https://store.steampowered.com/app/' + g.appid, '_blank') }, 'Store'),
-          done ? null : h('button', { class: 'btn red sm', disabled: !g.subid, title: g.subid ? '' : 'No free package found: open the store page', onclick: async (e) => {
-            e.currentTarget.disabled = true; const r = await window.api.freeClaim({ appid: g.appid, accountId: 'all' }); if (r && r.error) toast(r.error, 'bad'); else { FG = r; toast('Done. See the list for the result.', 'ok'); } paint();
-          } }, 'Add to account'));
-      }));
-    };
-    paint();
-    kids.push(list, h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: async (e) => { e.currentTarget.disabled = true; FG = await window.api.freeCheck(); renderTab(null); } }, 'Check now')));
-    return h('div', { class: 'wsec' }, kids.filter(Boolean));
-  };
-
+  let lookCat = 'themes';
   const generalTab = () => {
     const t = window.WellaTheme.get();
     const hex = h('input', { class: 'in hex', value: t.accent, maxlength: '7', onchange: (e) => {
       const v = e.target.value.trim(); if (/^#[0-9a-fA-F]{6}$/.test(v)) { window.WellaTheme.set({ accent: v.toLowerCase() }); draw(); } else e.target.value = t.accent; } });
     const picker = h('input', { type: 'color', value: t.accent, oninput: (e) => { window.WellaTheme.set({ accent: e.target.value }); hex.value = e.target.value; } });
     picker.addEventListener('change', draw);
+    const isAdminPanelWeb = () => !!(window.__WELLA_WEB && document.body.classList.contains('admin-panel'));
+    const localAdminTabValue = (key, fallback = true) => { try { const v = localStorage.getItem('wella-admin-tab-' + key); return v === null ? fallback : v === '1'; } catch { return fallback; } };
     const pref = (label, key, hint) => h('div', { class: 'setrow' }, h('label', { class: 'chk' },
-      h('input', { type: 'checkbox', checked: prefs[key] ? 'checked' : null, onchange: async (e) => { prefs = await window.api.setPrefs({ [key]: e.target.checked }); if (key === 'freeTab') applyFreeTab(prefs.freeTab !== false); } }), label),
+      h('input', { type: 'checkbox', checked: (isAdminPanelWeb() && ['dashTab','achTab','freeTab','friendsTab'].includes(key) ? localAdminTabValue(key, true) : prefs[key] !== false) ? 'checked' : null, onchange: async (e) => {
+        if (isAdminPanelWeb() && ['dashTab','achTab','freeTab','friendsTab'].includes(key)) {
+          try { localStorage.setItem('wella-admin-tab-' + key, e.target.checked ? '1' : '0'); } catch {}
+          if (key === 'freeTab') applyFreeTab(e.target.checked); if (key === 'dashTab') applyDashTab(e.target.checked); if (key === 'achTab') applyAchTab(e.target.checked); if (key === 'friendsTab') applyFriendsTab(e.target.checked);
+          return;
+        }
+        prefs = await window.api.setPrefs({ [key]: e.target.checked }); if (key === 'freeTab') applyFreeTab(prefs.freeTab !== false); if (key === 'dashTab') applyDashTab(prefs.dashTab !== false); if (key === 'achTab') applyAchTab(prefs.achTab !== false); if (key === 'friendsTab') applyFriendsTab(prefs.friendsTab !== false);
+      } }), label),
       hint ? h('small', { style: muted }, hint) : null);
-    const S = (id, title, kids, open) => window.WellaExtra.section(id, title, kids, open);
     const keyRow = (name, label, msg) => US.keys[name] ? h('div', { class: 'setrow' },
       h('div', {}, h('b', {}, label + ' API Key'), h('small', { style: muted }, '\u2713 Salvat\u0103 \u0219i valid\u0103')),
       h('button', { class: 'btn stop sm', onclick: async () => { US.keys = await window.api.utilKeysSet({ [name]: '' }); toast(msg); renderTab(null); } }, 'Remove')) : null;
-    return [
-      S('look', 'Appearance', [
-        ...window.WellaExtra.lookTab(draw),
-        h('div', { class: 'setrow' }, h('b', {}, 'Theme'),
-          h('div', { class: 'seg' }, ['dark', 'light'].map((m) => h('button', { class: 'btn' + (t.mode === m ? ' on' : ''), onclick: () => { window.WellaTheme.set({ mode: m }); draw(); } }, m === 'dark' ? 'Black' : 'White')))),
+    // ---- Appearance is split in categories: Themes, Colors, Background, Fonts, Settings ----
+    const LOOK_CATS = [['themes', 'Themes'], ['colors', 'Colors'], ['bg', 'Background'], ['fonts', 'Fonts'], ['settings', 'Settings']];
+    const lookCatBar = () => h('div', { class: 'lookcats' }, LOOK_CATS.map(([k, label]) => h('button', { class: 'btn' + (lookCat === k ? ' on' : ''), onclick: () => { lookCat = k; draw(); } }, label)));
+    const hexOf = (v) => { v = String(v || '').trim(); if (/^#[0-9a-f]{6}$/i.test(v)) return v.toLowerCase(); const m = /^#([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(v); return m ? ('#' + m[1] + m[1] + m[2] + m[2] + m[3] + m[3]).toLowerCase() : null; };
+    const cssHex = (name, fallback) => hexOf(getComputedStyle(document.documentElement).getPropertyValue(name)) || fallback;
+    // one colour line: picker + hex + reset
+    const colRow = (label, tip, eff, onSet, onReset, resetLabel) => {
+      const hexIn = h('input', { class: 'in hex', value: eff, maxlength: '7', onchange: (e) => { const v = hexOf(e.target.value); if (v) { onSet(v); draw(); } else e.target.value = eff; } });
+      const pick = h('input', { type: 'color', value: eff, oninput: (e) => { onSet(e.target.value); hexIn.value = e.target.value; } });
+      pick.addEventListener('change', draw);
+      return h('div', { class: 'colrow' }, pick, h('div', {}, h('b', {}, label), tip ? h('small', {}, tip) : null), hexIn,
+        onReset ? h('button', { class: 'btn ghost sm', title: resetLabel || 'Back to the normal color', onclick: () => { onReset(); draw(); } }, 'Reset') : null);
+    };
+    const palRow = (key, label, tip) => {
+      const T = window.WellaTheme, t0 = T.get(), eff = (t0.pal && hexOf(t0.pal[key])) || cssHex('--' + key, '#000000');
+      const dflt = t0.mode === 'dark' && T.defaults.pal ? T.defaults.pal[key] : null;
+      return colRow(label, tip, eff, (v) => { T.set({ pal: { ...(T.get().pal || {}), [key]: v }, preset: '' }); },
+        () => { const pal = { ...(T.get().pal || {}) }; if (dflt) pal[key] = dflt; else delete pal[key]; T.set({ pal, preset: '' }); });
+    };
+    const extraRow = (key, label, tip, dflt) => {
+      const T = window.WellaTheme, t0 = T.get(), eff = hexOf(t0[key]) || (dflt === 'accent' ? t0.accent : dflt);
+      return colRow(label, tip, eff, (v) => T.set({ [key]: v, preset: '' }), () => T.set({ [key]: '', preset: '' }), dflt === 'accent' ? 'Follow the accent color' : 'Back to the normal color');
+    };
+    const hsl = (hh, ss, ll) => { ss /= 100; ll /= 100; const k = (n) => (n + hh / 30) % 12, a2 = ss * Math.min(ll, 1 - ll), f = (n) => ll - a2 * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1))); const x = (v) => Math.round(v * 255).toString(16).padStart(2, '0'); return '#' + x(f(0)) + x(f(8)) + x(f(4)); };
+    const makePal = (hh, sat) => ({ bg0: hsl(hh, sat * .6, 3), panel0: hsl(hh, sat * .55, 6), panel20: hsl(hh, sat * .5, 8), line0: hsl(hh, sat * .5, 14), line2: hsl(hh, sat * .5, 22), text: hsl(hh, sat * .9, 96), mut: hsl(hh, sat * .3, 58), chip: hsl(hh, sat * .55, 7), chip2: hsl(hh, sat * .5, 9), chip3: hsl(hh, sat * .45, 11), hover: hsl(hh, sat * .55, 8), modal: hsl(hh, sat * .6, 4.5), sec: hsl(hh, sat * .55, 5.5), faint: hsl(hh, sat * .35, 30) });
+    const PALETTES = [['Pink Noir', 320, 70, '#ff3d9a'], ['Purple', 268, 60, '#8b5cf6'], ['Blue', 215, 65, '#3b82f6'], ['Cyan', 188, 65, '#06b6d4'], ['Green', 150, 55, '#22c55e'], ['Red', 355, 65, '#ef4444'], ['Orange', 24, 65, '#f97316'], ['Gold', 45, 60, '#eab308'], ['OLED black', 0, 0, '#ffffff'], ['Slate', 220, 18, '#94a3b8']];
+    const colorsCat = () => {
+      const T = window.WellaTheme, t1 = T.get();
+      const palCards = h('div', { class: 'palgrid' }, PALETTES.map(([name, hh, sat, acc]) => { const pal = makePal(hh, sat); return h('button', { class: 'palcard', title: 'Sets the background, panels, text and accent together', onclick: () => { T.set({ mode: 'dark', pal, accent: acc, preset: '' }); toast('Palette: ' + name, 'ok'); draw(); } },
+        h('div', { class: 'palsw', style: `background:${pal.bg0}` }, h('div', { class: 'palsw-box', style: `background:${pal.panel0};border-color:${pal.line2}` },
+          h('div', { class: 'palsw-l', style: `background:${pal.text}` }), h('div', { class: 'palsw-l s', style: `background:${pal.mut}` }), h('div', { class: 'palsw-b', style: `background:${acc}` }))), h('small', {}, name)); }));
+      const group = (title, rows, tip) => h('div', { class: 'bgsec' }, h('b', {}, title), tip ? h('small', { style: muted }, tip) : null, h('div', { class: 'colgrid' }, rows));
+      return [
+        h('div', { class: 'bgsec' }, h('b', {}, 'Quick palettes'), h('small', { style: muted }, 'One click sets the background, panels, text and accent together. Then fine tune below.'), palCards),
+        h('div', { class: 'setrow' }, h('b', {}, 'Mode'),
+          h('div', { class: 'seg' }, ['dark', 'light'].map((m) => h('button', { class: 'btn' + (t1.mode === m ? ' on' : ''), onclick: () => { T.set({ mode: m }); draw(); } }, m === 'dark' ? 'Black' : 'White')))),
         h('div', { class: 'setrow' }, h('b', {}, 'Accent color (also recolours the logo)'),
-          h('div', { class: 'sw' }, PRESETS.map((c) => h('button', { class: t.accent === c ? 'on' : '', style: `background:${c}`, title: c, onclick: () => { window.WellaTheme.set({ accent: c }); draw(); } })), picker, hex)),
-        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: t.tint ? 'checked' : null, onchange: (e) => window.WellaTheme.set({ tint: e.target.checked }) }), 'Tint the whole app with the accent color'),
-        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: t.fx !== false ? 'checked' : null, onchange: (e) => window.WellaTheme.set({ fx: e.target.checked }) }), 'Animations')
-      ], true),
-      S('bg', 'Background', [bgSection(draw)]),
-      S('btn', 'Buttons', [
-        h('div', { class: 'sbtns' }, h('button', { class: 'btn red' }, 'Primary'), h('button', { class: 'btn start' }, 'Start'), h('button', { class: 'btn stop' }, 'Stop')),
-        colorRow('Primary buttons (Save, Sign in, Done...)', 'btn', PRESETS, true),
-        colorRow('Start button (glows on hover)', 'start', START_PRESETS, false),
-        colorRow('Stop button (glows on hover)', 'stop', STOP_PRESETS, false),
-        h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: () => { const df = window.WellaTheme.defaults; window.WellaTheme.set({ btn: '', start: df.start, stop: df.stop }); draw(); } }, 'Reset button colors'))
-      ]),
+          h('div', { class: 'sw' }, PRESETS.map((c) => h('button', { class: t1.accent === c ? 'on' : '', style: `background:${c}`, title: c, onclick: () => { T.set({ accent: c }); draw(); } })), picker, hex)),
+        h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: t1.tint ? 'checked' : null, onchange: (e) => T.set({ tint: e.target.checked }) }), 'Tint the whole app with the accent color'),
+        h('div', { class: 'bgsec' }, h('b', {}, 'Buttons'),
+          h('div', { class: 'sbtns' }, h('button', { class: 'btn red' }, 'Primary'), h('button', { class: 'btn start' }, 'Start'), h('button', { class: 'btn stop' }, 'Stop')),
+          colorRow('Primary buttons (Save, Sign in, Done...)', 'btn', PRESETS, true),
+          colorRow('Start button (glows on hover)', 'start', START_PRESETS, false),
+          colorRow('Stop button (glows on hover)', 'stop', STOP_PRESETS, false),
+          h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: () => { const df = T.defaults; T.set({ btn: '', start: df.start, stop: df.stop }); draw(); } }, 'Reset button colors'))),
+        group('Surfaces', [
+          palRow('bg0', 'Background', 'Behind everything'), palRow('panel0', 'Cards and panels', 'Account cards, boxes'), palRow('panel20', 'Inner panels', 'Game lists, rows'),
+          palRow('chip', 'Small boxes', 'Tiles, chips, inputs'), palRow('chip2', 'Small boxes (hover)'), palRow('hover', 'Hover highlight', 'When the mouse is over a row'),
+          palRow('modal', 'Pop-up windows', 'Settings, game info'), palRow('sec', 'Section headers')]),
+        group('Text and borders', [
+          palRow('text', 'Text', 'Titles and normal text'), palRow('mut', 'Soft text', 'Labels and small notes'), palRow('faint', 'Faint text', 'Hints, disabled things'),
+          palRow('line0', 'Borders', 'Thin lines around boxes'), palRow('line2', 'Strong borders', 'Inputs and buttons')]),
+        group('Status and effects', [
+          extraRow('good', 'Success / online', 'Green dots, “Boosting”, “Added”', '#22c55e'), extraRow('warn', 'Warning', 'Yellow / orange notes', '#eab308'), extraRow('bad', 'Error / stop', 'Red errors and bans', '#ef4444'),
+          extraRow('glowc', 'Glow color', 'Soft light around cards and buttons', 'accent'), extraRow('sel', 'Text selection', 'When you select text', 'accent'), extraRow('scrollc', 'Scrollbar', 'The thin bar at the side', 'accent')]),
+        h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost', onclick: () => { const df = T.defaults; T.set({ pal: t1.mode === 'dark' ? df.pal : null, accent: df.accent, btn: '', start: df.start, stop: df.stop, good: '', bad: '', warn: '', glowc: '', sel: '', scrollc: '', tint: false, preset: '' }); toast('Colors reset', 'ok'); draw(); } }, 'Reset all colors'))
+      ];
+    };
+    const lookBody = () => lookCat === 'colors' ? colorsCat() : lookCat === 'bg' ? [bgSection(draw)] : window.WellaExtra.lookTab(draw, lookCat);
+    const sections = [
+      S('look', 'Appearance', [lookCatBar(), ...lookBody()], true),
       S('notif', 'Notifications', [
         h('div', { class: 'shapes' }, [['pill', 'Pill', '999px'], ['round', 'Rounded', '9px'], ['soft', 'Soft square', '5px'], ['square', 'Square', '1px'], ['oval', 'Oval', '50%']].map(([k, l, r]) =>
           h('button', { class: 'btn' + ((t.toastShape || 'pill') === k ? ' on' : ''), onclick: () => { window.WellaTheme.set({ toastShape: k }); draw(); toast('This is how notifications look.', 'ok', l); } }, h('i', { style: 'border-radius:' + r }), l))),
@@ -1279,25 +1890,69 @@ async function openSettings() {
           h('button', { class: 'btn ghost sm', onclick: () => toast('Something went wrong.', 'bad', 'Error') }, 'Preview error')),
         ...(window.WellaMon ? window.WellaMon.monitorTab(draw, 'notify') : [])
       ]),
-      S('tabs', 'Tabs & monitor', [
+      S('tabs', 'Tabs', [
         window.WellaMon ? window.WellaMon.generalToggle() : null,
         h('div', { class: 'setrow' }, h('label', { class: 'chk' },
-          h('input', { type: 'checkbox', checked: prefs.utilTab !== false ? 'checked' : null, onchange: async (e) => { prefs = await window.api.setPrefs({ utilTab: e.target.checked }); applyUtilTab(prefs.utilTab); } }), 'Utility tab')),
+          h('input', { type: 'checkbox', checked: (isAdminPanelWeb() ? localAdminTabValue('utilTab', true) : prefs.utilTab !== false) ? 'checked' : null, onchange: async (e) => { if (isAdminPanelWeb()) { try { localStorage.setItem('wella-admin-tab-utilTab', e.target.checked ? '1' : '0'); } catch {} applyUtilTab(e.target.checked); return; } prefs = await window.api.setPrefs({ utilTab: e.target.checked }); applyUtilTab(prefs.utilTab !== false); } }), 'Utility tab')),
+        pref('Dashboard tab', 'dashTab', 'Show or hide the Dashboard tab (all accounts, Steam hours, cards and boost history) before the Achievement Manager.'),
+        pref('Achievement Manager tab', 'achTab', 'Show or hide the Achievement Manager tab from the main navigation.'),
         pref('Free Games tab', 'freeTab', 'Show or hide the Free Games tab from the main navigation.'),
+        (!window.__WELLA_WEB || isAdminPanelWeb()) ? pref('Manage Friends tab', 'friendsTab', 'Show or hide the Manage Friends tab from the main navigation.') : null,
         ...(window.WellaMon ? window.WellaMon.monitorTab(draw, 'monitor') : [])
       ]),
-      S('startup', 'Startup', [
-        pref('Start with Windows (straight to the system tray)', 'autostart'),
-        pref('Start the hour booster automatically', 'autoBoost'),
-        pref('Start Free Games auto discovery automatically', 'autoDiscovery', 'Search for current free Steam offers when Wella Hub starts and keep checking on the configured interval.'),
-        window.__WELLA_WEB ? h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: () => window.api.logout() }, 'Log out of web access')) : null
-      ]),
       S('widget', 'Mini widget', [widgetSection()]),
-      S('keys', 'API keys', [steamKeyRow(), keyRow('faceit', 'FACEIT', 'Cheie FACEIT \u0219tears\u0103'), keyRow('leetify', 'Leetify', 'Cheie Leetify \u0219tears\u0103')])
+      S('startup', 'Startup & API keys', [
+        pref('Start with Windows (straight to the system tray)', 'autostart'),
+        pref('Start the hour booster automatically (on by itself)', 'autoBoost', 'On by default: the Hour Booster starts by itself every time Wella Hub opens.'),
+        pref('Start Free Games auto discovery automatically', 'autoDiscovery', 'Off by default. When this is on, auto discovery starts by itself every time Wella Hub opens. Leave it off to start it yourself from the Free Games tab.'),
+        window.__WELLA_WEB ? h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: () => window.api.logout() }, 'Log out of web access')) : null,
+        h('div', { class: 'sep' }),
+        h('b', {}, 'API keys'),
+        steamKeyRow(), keyRow('faceit', 'FACEIT', 'Cheie FACEIT \u0219tears\u0103'), keyRow('leetify', 'Leetify', 'Cheie Leetify \u0219tears\u0103')
+      ], true),
     ].filter(Boolean);
+    return sections;
   };
 
+  // The previous top-level Accounts page managed Discord bot accounts. Keep that feature,
+  // but place it under Discord as AI Bot so it is separate from personal-account management.
+  const aiBotSection = () => window.WellaDcBots ? S('dcbots', 'AI Bot', window.WellaDcBots.section(), true) : S('dcbots', 'AI Bot', [
+    h('small', { style: muted }, 'Discord bot management is unavailable in this build.')
+  ], true);
+  const accountsSection = () => {
+    const openAdd = () => {
+      const clientId = h('input', { class: 'in', placeholder: 'Discord OAuth2 Client ID', autocomplete: 'off' });
+      const redirect = h('input', { class: 'in', value: 'http://127.0.0.1:43821/discord/callback', readonly: 'readonly' });
+      const info = h('div', { class: 'modal wide' },
+        h('h2', {}, 'Add Discord account'),
+        h('p', { style: muted }, 'Connect through Discord OAuth2. Discord opens its secure authorization screen and returns to Wella Hub; the app must never ask for your Discord password or user token.'),
+        h('div', { class: 'bgsec' },
+          h('b', {}, 'Connect account'),
+          h('small', { style: muted }, 'Enter the Client ID of your Discord application. The OAuth2 redirect URI must be registered exactly as shown below. This is configuration only; account linking requires the OAuth callback handler to be enabled in this build.'),
+          clientId,
+          h('label', {}, 'Redirect URI'), redirect,
+          h('div', { class: 'sbtns' },
+            h('button', { class: 'btn ghost sm', onclick: () => { clientId.value = ''; toast('Client ID cleared'); } }, 'Clear'),
+            h('a', { class: 'btn ghost sm', href: 'https://discord.com/developers/applications', target: '_blank', rel: 'noopener noreferrer' }, 'Configure OAuth2'))),
+        h('div', { class: 'bgsec' },
+          h('b', {}, 'What can be managed?'),
+          h('small', { style: muted }, 'OAuth2 can identify an account and grant explicitly approved scopes. It cannot turn Wella Hub into a personal-account self-bot, change personal username/avatar through the public API, or force user-account Rich Presence. For Rich Presence, use the supported application presence integration already available in the Discord tab.')),
+        h('div', { class: 'mact' }, h('button', { class: 'btn red', onclick: closeModal }, 'Close')));
+      showModal(info);
+    };
+    return S('discord-accounts', 'Accounts', [
+      h('div', { class: 'auto' },
+        h('div', {}, h('b', {}, 'Discord accounts'), h('small', {}, 'Account connections and profile information authorized through Discord.')),
+        h('button', { class: 'btn red', onclick: openAdd }, '＋ Add Account')),
+      h('div', { class: 'bgsec' }, h('b', {}, 'Connected accounts'),
+        h('small', { style: muted }, 'No account connections are active. This build does not yet include the OAuth2 callback and secure account-linking backend, so it will not falsely show an account as connected.')),
+      h('div', { class: 'bgsec' }, h('b', {}, 'Profile and presence'),
+        h('small', { style: muted }, 'Wella Hub can configure its own supported Discord Rich Presence integration. Personal-account avatar/username editing and self-bot presence automation are not supported by Discord’s public API.'))
+    ], true);
+  };
+  const adminTab = () => [];
   const discordTab = () => [
+    S('rpc', 'Rich Presence', [
     h('div', { class: 'auto' },
       h('div', {}, h('b', {}, 'Quick setup'), h('small', {}, 'Fills in the Application ID, name, logo (asset "wella"), texts and timer for Wella Hub, saves and connects.')),
       h('button', { class: 'btn red', onclick: async (e) => {
@@ -1341,12 +1996,15 @@ async function openSettings() {
     h('small', { style: muted }, 'Discord does not show your own buttons to you; other people see them.'),
     h('div', { class: 'sep' }),
     check('Hide the activity when nothing is boosting', 'hideIdle')
+    ], true),
+    aiBotSection(),
+    accountsSection()
   ].filter(Boolean);
 
   // ----- web access (only shown in the desktop app) -----
   const remoteTab = () => {
     let st = null;
-    const copy = async (t) => { try { await navigator.clipboard.writeText(t); toast('Link copied', 'ok'); } catch { toast('Could not copy. Select and copy it by hand.', 'bad'); } };
+    const copy = async (t, label = 'Link') => { try { await navigator.clipboard.writeText(t); toast(label + ' copied', 'ok'); } catch { toast('Could not copy. Select and copy it by hand.', 'bad'); } };
     const linkRow = (label, url) => h('div', { class: 'lrow' }, h('small', { style: muted }, label),
       h('div', { class: 'lk' }, h('code', {}, url), h('button', { class: 'btn ghost sm', onclick: () => copy(url) }, 'Copy')));
     const save = async (patch, okMsg) => {
@@ -1355,88 +2013,45 @@ async function openSettings() {
       st = r; if (okMsg) toast(okMsg, 'ok'); paint(); return true;
     };
     const dyn = h('div', { class: 'rdyn' });
-    const deviceRows = h('div', { class: 'device-list' });
-    const deviceNote = h('small', { class: 'device-note' }, 'Web sessions will appear here.');
-    let deviceBusy = false;
-    const drawDevices = (devices) => deviceRows.replaceChildren(...(devices.length ? devices.map((d) => {
-      const seen = d.lastSeen ? new Date(d.lastSeen).toLocaleString(uiLocale()) : 'Unknown';
-      const badge = h('small', { class: 'device-state' + (d.blocked ? ' blocked' : d.trusted ? ' trusted' : d.connected ? ' connected' : '') }, d.blocked ? 'Blocked' : d.trusted ? 'Whitelisted' : d.connected ? 'Connected' : 'Offline');
-      const controls = d.blocked
-        ? [h('button', { class: 'btn start sm', onclick: () => runDeviceAction(d, 'unblock') }, 'Unblock')]
-        : [...(d.connected ? [h('button', { class: 'btn ghost sm', onclick: () => runDeviceAction(d, 'disconnect') }, 'Disconnect')] : []), h('button', { class: 'btn ' + (d.trusted ? 'ghost' : 'start') + ' sm', title: d.trusted ? 'This browser can sign in without asking for the password' : 'Allow this browser to sign in without asking for the password', onclick: () => runDeviceAction(d, d.trusted ? 'unwhitelist' : 'whitelist') }, d.trusted ? 'Remove whitelist' : 'Whitelist'), h('button', { class: 'btn stop sm', onclick: () => runDeviceAction(d, 'block') }, 'Block')];
-      controls.push(h('button', { class: 'btn ghost sm', title: 'Forget this browser and remove it from the list', onclick: () => { if (confirm(`Delete ${d.name || 'this web device'} from the list? Its active session will be disconnected.`)) runDeviceAction(d, 'delete'); } }, 'Delete'));
-      return h('div', { class: 'device-row' }, h('div', { class: 'device-ident' }, h('b', {}, d.name || 'Web browser'), h('small', {}, `${d.ip || 'Unknown IP'} · Last seen ${seen}`)), badge, ...controls);
-    }) : [h('div', { class: 'empty' }, 'No web devices have logged in yet.')]));
-    async function runDeviceAction(d, action) {
-      try { const r = await window.api.remoteDevicesAction({ id: d.id, action }); if (r.error) throw new Error(r.error); const labels = { block: 'Web device blocked.', unblock: 'Web device unblocked.', disconnect: 'Web device disconnected and will need to log in again.', whitelist: 'Web device whitelisted.', unwhitelist: 'Web device removed from whitelist.', delete: 'Web device removed.' }; toast(labels[action] || 'Device updated.', 'ok'); drawDevices(r.devices || []); }
-      catch (err) { toast(err.message || String(err), 'bad'); }
-    }
-    async function refreshDevices() {
-      if (deviceBusy) return;
-      deviceBusy = true;
-      try {
-        const r = await window.api.remoteDevicesGet(), devices = Array.isArray(r) ? r : [];
-        drawDevices(devices);
-        deviceNote.textContent = `${devices.filter((d) => d.connected).length} connected · ${devices.filter((d) => d.trusted).length} whitelisted · ${devices.filter((d) => d.blocked).length} blocked. Whitelisted browsers skip password entry on this device.`;
-      } catch (err) { deviceNote.textContent = err.message || 'Could not read web sessions.'; deviceRows.replaceChildren(); }
-      finally { deviceBusy = false; }
-    }
-    const deviceManager = h('section', { class: 'device-manager' }, h('div', { class: 'device-manager-head' }, h('div', {}, h('h2', {}, 'Web Device Manager'), h('small', {}, 'Phones and browsers connected to Wella Hub')), h('button', { class: 'btn ghost sm', onclick: refreshDevices }, 'Refresh')), deviceNote, deviceRows);
-    const devicePoll = setInterval(() => { if (!deviceManager.isConnected) clearInterval(devicePoll); else refreshDevices(); }, 3000);
-    refreshDevices();
     const enabled = h('input', { type: 'checkbox', onchange: async (e) => { if (!(await save({ enabled: e.target.checked }, e.target.checked ? 'Web access is on' : 'Web access is off'))) e.target.checked = !e.target.checked; } });
-    const pw = h('input', { class: 'in', type: 'password', placeholder: 'New password (at least 8 characters)', autocomplete: 'new-password' });
-    const port = h('input', { class: 'in', type: 'number', min: '1024', max: '65535', style: 'max-width:130px' });
-    let ipText = '';
+    const pw = h('input', { class: 'in', type: 'text', readonly: 'readonly', autocomplete: 'off', spellcheck: 'false' });
     const paint = () => {
       if (!st) return;
-      if (document.activeElement !== port) port.value = st.port;
+      pw.value = st.accessPassword || '';
       enabled.checked = st.enabled;
       const t = st.tunnel || {};
       const line = !st.enabled ? 'Off.' : st.error ? st.error : st.running ? `On, port ${st.port}.` + (st.clients ? ` ${st.clients} device${st.clients > 1 ? 's' : ''} connected.` : '') : 'Starting...';
       const kids = [h('small', { style: st.error ? 'color:#ff6b81' : muted }, line)];
       if (st.enabled && st.running) {
+        kids.push(h('div', { class: 'sep' }), h('b', {}, 'Password'));
+        kids.push(h('div', { class: 'setrow' }, h('div', { class: 'lk' }, pw,
+          h('button', { class: 'btn ghost sm', onclick: () => copy(pw.value, 'Password') }, 'Copy')),
+          h('small', { style: muted }, '8 characters (a–z, 0–9). Generated automatically if none is set. Passwords are never sent to Discord.')));
         kids.push(h('div', { class: 'sep' }), h('b', {}, 'Open on your phone'));
         kids.push(linkRow('Same Wi-Fi / network as this PC', st.urls[0] || `http://localhost:${st.port}`));
         for (const u of st.urls.slice(1)) kids.push(linkRow('Other network card', u));
         kids.push(h('div', { class: 'sep' }), h('b', {}, 'Public link (works from anywhere, also on mobile data)'));
-        kids.push(h('small', { style: muted }, 'Free Cloudflare tunnel: HTTPS, no router setup, no need to be on the same Wi-Fi. The link changes every time it is created. Keep this window open or use the checkbox below.'));
-        if (t.status === 'on') kids.push(linkRow('Public link', t.url), h('div', { class: 'sbtns' }, h('button', { class: 'btn stop sm', onclick: async () => { st = await window.api.remoteTunnel(false); paint(); } }, 'Stop public link')));
-        else if (t.status === 'downloading' || t.status === 'starting') kids.push(h('div', {}, h('span', { class: 'spin' }), t.message));
+        kids.push(h('small', { style: muted }, 'Free Cloudflare tunnel: HTTPS, no router setup. Web access on this PC remains separate.'));
+        if (t.status === 'on') kids.push(linkRow('Public link', t.url), h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', onclick: async () => { st = await window.api.remoteTunnel('refresh'); paint(); } }, 'Refresh link'), ...(st.lockPublicLink ? [h('small', { style: muted }, 'Public link is protected from accidental stopping.')] : [h('button', { class: 'btn danger sm', onclick: async () => { const r = await window.api.remoteTunnel(false); if (r && r.error) toast(r.error, 'bad'); st = r; paint(); } }, 'Stop public link')])));
+        else if (t.status === 'downloading' || t.status === 'starting') kids.push(h('div', {}, h('span', { class: 'spin' }), t.message || 'Starting public link...'));
         else kids.push(...(t.status === 'error' ? [h('small', { style: 'color:#ff6b81' }, t.message)] : t.message ? [h('small', { style: muted }, t.message)] : []),
-          h('div', { class: 'sbtns' }, h('button', { class: 'btn start sm', onclick: async () => { st = await window.api.remoteTunnel(true); paint(); } }, t.status === 'error' ? 'Try again' : 'Create public link')));
+          h('div', { class: 'sbtns' }, h('button', { class: 'btn start sm', onclick: async () => { st = await window.api.remoteTunnel(true); paint(); } }, t.status === 'error' ? 'Try again' : 'Start public link'), ...(t.status === 'starting' || t.status === 'downloading' ? [h('button', { class: 'btn ghost sm', onclick: async () => { st = await window.api.remoteTunnel(false); paint(); } }, 'Cancel')] : [])));
         kids.push(h('label', { class: 'chk' }, h('input', { type: 'checkbox', checked: st.autoTunnel ? 'checked' : null, onchange: (e) => save({ autoTunnel: e.target.checked }) }), 'Create the public link automatically when Wella Hub starts'));
-        kids.push(h('div', { class: 'sep' }), h('b', {}, 'Direct IP (advanced)'));
-        kids.push(h('small', { style: muted }, `Forward TCP port ${st.port} on your router to this PC, then open http://YOUR-PUBLIC-IP:${st.port}. It is plain HTTP, so the password is not encrypted on the way. The public link above is safer.`));
-        if (!ipText && st.cachedIp) ipText = st.cachedIp;
-        kids.push(ipText
-          ? linkRow('Direct IP link (forward TCP port on router)', `http://${ipText}:${st.port}`)
-          : h('div', { class: 'sbtns' },
-              h('button', { class: 'btn ghost sm', onclick: async (e) => { e.currentTarget.disabled = true; ipText = (await window.api.remoteIp()) || ''; if (!ipText) toast('Could not find the public IP.', 'bad'); paint(); } }, 'Show my public IP'),
-              h('small', { style: muted }, 'Also forward TCP port ' + st.port + ' on your router and allow it in Windows Firewall.')));
       }
       dyn.replaceChildren(...kids);
     };
     const refresh = async () => { try { st = await window.api.remoteGet(); paint(); } catch {} };
     refresh();
-    const poll = setInterval(() => { if (!dyn.isConnected) { clearInterval(poll); return; } refresh(); }, 1500);
+    const poll = setInterval(() => { if (!dyn.isConnected) { clearInterval(poll); return; } refresh(); }, 3000);
     return [
-      h('small', { style: muted }, 'Control Wella Hub from your phone or any browser. It shows the same screens and keeps working while this app is open (also when it sits in the tray).'),
-      h('label', { class: 'chk' }, enabled, 'Enable web access'),
-      h('div', { class: 'setrow' }, h('b', {}, 'Password'),
-        h('div', { class: 'lk' }, pw, h('button', { class: 'btn red sm', onclick: async () => { if (await save({ password: pw.value }, 'Password saved. Devices that were logged in are logged out.')) pw.value = ''; } }, 'Set password')),
-        h('small', { style: muted }, 'Required. Anyone with the link and this password controls your Steam accounts, so make it long.')),
-      h('div', { class: 'setrow' }, h('b', {}, 'Port'),
-        h('div', { class: 'lk' }, port, h('button', { class: 'btn ghost sm', onclick: () => save({ port: port.value }, 'Port saved') }, 'Apply')),
-        h('small', { style: muted }, 'Windows may ask once to allow Wella Hub through the firewall. Allow it for private networks.')),
+      h('small', { style: muted }, 'Control Wella Hub from your phone or any browser. Same screens as the desktop app. Web access starts with the app; if no password is set, an 8-character password (letters and numbers) is generated automatically.'),
       h('div', { class: 'sep' }),
       dyn,
       h('div', { class: 'sep' }),
-      deviceManager
+      h('label', { class: 'chk' }, enabled, 'Enable web access')
     ];
   };
 
-  const ICON_MON = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 11l2-2 2 3 3-5 3 4"/></svg>';
   const TABS = [['general', 'General', ICON_GEAR], ['discord', 'Discord', ICON_DISCORD]];
   // Web access tab: mereu vizibil pe desktop; pe web doar daca parola e cea de administrator
   if (!window.__WELLA_WEB) {
@@ -1445,7 +2060,7 @@ async function openSettings() {
     window.api.remoteIsAdmin().then((isAdmin) => {
       if (isAdmin) {
         TABS.push(['remote', 'Web access', ICON_PHONE]);
-        // re-render stabs ca sa apara noul tab
+            // re-render stabs ca sa apara noul tab
         if (document.contains(stabs)) {
           stabs.style.setProperty('--n', TABS.length);
           stabs.style.setProperty('--k', Math.max(0, TABS.findIndex((x) => x[0] === settingsTab)));
@@ -1482,18 +2097,33 @@ async function openSettings() {
     if (settingsTab === 'discord') { refreshStatus(); refreshPreview(); }
   }
   const draw = () => renderTab(null);
-  body.append(h('div', { class: 'sh' }, h('h2', {}, 'Settings'), h('small', { style: muted }, 'Wella Hub ' + (document.getElementById('fVer').textContent || ''))), stabs, content, actions);
+  body.append(h('div', { class: 'sh' },
+    h('h2', {}, 'Settings'),
+    h('div', { style: 'display:flex;align-items:center;gap:10px;flex-wrap:wrap' },
+      h('small', { style: muted }, 'Wella Hub ' + (document.getElementById('fVer').textContent || '')),
+      h('button', { class: 'btn ghost sm', title: 'Verifică pe GitHub dacă există o versiune mai nouă', onclick: async (e) => {
+        const btn = e.currentTarget; btn.disabled = true; btn.textContent = 'Verific…';
+        try {
+          const r = await window.api.checkUpdate();
+          if (r && r.upToDate) toast('Ești la zi (' + (r.local || '') + ')', 'ok');
+          else if (r && r.skipped) toast('Update amânat', 'ok');
+          else if (r && r.applying) toast('Se aplică update-ul…', 'ok');
+          else if (r && r.error) toast(r.error, 'bad');
+        } catch (err) { toast(String(err && err.message || err), 'bad'); }
+        finally { btn.disabled = false; btn.textContent = 'Verifică update'; }
+      } }, 'Verifică update')
+    )
+  ), stabs, content, actions);
   renderTab(0);
   showModal(body);
   // saved keys are re-checked in the background: one the server now refuses is removed and its input comes back
-  window.api.onFree && window.api.onFree((v) => { FG = v; if (content.isConnected && settingsTab === 'general') renderTab(null); });
   window.api.onWidgetOff && window.api.onWidgetOff(() => { window.api.widgetGet().then((r) => { WG = r; if (content.isConnected && settingsTab === 'general') renderTab(null); }); });
   window.api.utilKeysCheck().then((k) => {
     if (!k) return;
     const changed = k.faceit !== US.keys.faceit || k.leetify !== US.keys.leetify || k.steam !== US.keys.steam;
     US.keys = { faceit: !!k.faceit, leetify: !!k.leetify, steam: k.steam };
     (k.invalid || []).forEach((n) => toast('Cheia ' + (n === 'faceit' ? 'FACEIT' : n === 'steam' ? 'Steam' : 'Leetify') + ' nu mai este validă. Introdu una nouă în Settings.', 'bad'));
-    if (changed && content.isConnected && settingsTab === 'general') renderTab(null);
+    if (changed && content.isConnected && (settingsTab === 'general' || settingsTab === 'startup')) renderTab(null);
     if (changed && tab === 'util') paintUtilPage();
   }).catch(() => {});
 }
@@ -1535,7 +2165,6 @@ function openGame(accId, appid) {
   const grid = h('div', { class: 'igrid' });
   const notes = h('div', { class: 'inote' });
   const acts = h('div', { class: 'iacts' });
-  const boosted = (a.gameSeconds[appid] || 0);
   const isCS = isCounterStrike(appid);
   // Sectiunea Player Stats — apare inline doar la CS
   const psSection = h('div', { class: 'igrid', style: 'margin-top:10px' });
@@ -1609,7 +2238,6 @@ function openAccount(accId) {
   const body = h('div', { class: 'isecs' });
   const notes = h('div', { class: 'inote' });
   const scanBox = h('div', { class: 'iscan' });
-  const cardBox = h('div', { class: 'iscan' });
   const links = h('div', { class: 'iacts' });
   const csBox = h('div', { class: 'isec' });                 // CS2 player check of this account (same card as the Utility player checker)
   const valueBox = h('div', { class: 'isec valbox' });       // very bottom: library value + playtime
@@ -1637,8 +2265,7 @@ function openAccount(accId) {
         cell('Never played', i && i.neverPlayed != null ? String(i.neverPlayed) : D),
         cell('Steam playtime (all games)', i && i.steamHoursTotal != null ? Math.round(i.steamHoursTotal).toLocaleString(uiLocale()) + ' h' : D),
         cell('Last 2 weeks', i && i.hours2w != null ? i.hours2w.toFixed(1) + ' h' : D),
-        cell('Games with trading cards', i ? (i.cardFlagKnown ? String(i.cardGames) : 'refresh game list') : D),
-        cell('Card drops left', drops ? `${drops.total} in ${drops.games} games` : D)]),
+        cell('Free cards left', a.cardsSum ? `${a.cardsSum.drops} in ${a.cardsSum.games} games` : D)]),
       sec('Achievements', [
         cell('Unlocked', t && t.total ? `${t.done} / ${t.total}` : D),
         cell('Completion', t && t.total ? (t.done / t.total * 100).toFixed(1) + '%' : D),
@@ -1660,20 +2287,9 @@ function openAccount(accId) {
         i.topGames.map((g) => h('div', { class: 'itop' }, h('span', {}, g.name), h('b', {}, Math.round(g.hours).toLocaleString(uiLocale()) + ' h')))) : null
     ].filter(Boolean));
   };
-  const drawCards = (msg) => {
-    const b = h('button', { class: 'btn ghost sm', onclick: runCards }, 'Update trading card info');
-    cardBox.replaceChildren(h('small', {}, msg || (a.cardsT ? `Card drops read ${agoText(a.cardsT)}. No game is started.` : 'Reads which games still have card drops left. No game is started.')), b);
-  };
-  const runCards = async () => {
-    cardBox.replaceChildren(h('span', { class: 'spin' }), h('small', {}, 'Reading card info\u2026'));
-    let r; try { r = await window.api.cardsScan(accId); } catch (e) { r = { error: e.message || String(e) }; }
-    if (r.error) { drawCards(r.error); return; }
-    if (last) last.drops = { games: r.games, total: r.total, t: r.t };
-    fill(last); drawCards(`${r.games} games with card drops left, ${r.total} cards to get.`);
-  };
   const drawScan = (t) => {
     const b = h('button', { class: 'btn red', onclick: runScan }, t && t.scanned ? 'Rescan achievements' : 'Scan achievements');
-    scanBox.replaceChildren(h('small', {}, t && t.scanned ? `Counted from ${t.scanned} of ${t.of} games. Scanning reads your public profile; no game is started.` : 'Counts achievements in every game on this account. Takes a while for big libraries; no game is started.'), b);
+    scanBox.replaceChildren(h('small', {}, t && t.scanned ? `Counted from ${t.scanned} of ${t.of} games. Reads the signed-in Steam client; no game is launched.` : 'Reads achievement schemas and states from the signed-in Steam client. Large libraries can take a while; no game is launched.'), b);
   };
   const runScan = async () => {
     const bar = h('i', { style: 'width:0%' }), line = h('small', {}, 'Starting\u2026');
@@ -1710,24 +2326,29 @@ function openAccount(accId) {
     csBox.replaceChildren(h('h3', {}, 'Player check (CS2)'), r && !r.error ? playerCard(r, { compact: true }) : h('small', { class: 'unote' }, (r && r.error) || 'Could not load the player stats.'));
   };
   const copy = async (text, what) => { try { await navigator.clipboard.writeText(text); toast(what + ' copied', 'ok'); } catch { toast('Could not copy', 'bad'); } };
-  const drawLinks = (i) => links.replaceChildren(...(i && i.url ? [
+  const drawLinks = (i) => links.replaceChildren(
+    h('button', { class: 'btn red', title: 'Edit the Steam profile of this account', onclick: () => openProfileEditor(accId) }, 'Edit profile'),
+    h('button', { class: 'btn ghost', title: 'Free trading cards left, time estimate', onclick: () => openCards(accId) }, 'Trading cards'),
+    ...(i && i.url ? [
     h('button', { class: 'btn ghost', onclick: () => window.open(i.url, '_blank') }, 'Open profile'),
     h('button', { class: 'btn ghost', onclick: () => copy(i.steamId, 'Steam ID') }, 'Copy Steam ID'),
     h('button', { class: 'btn ghost', onclick: () => copy(i.url, 'Link') }, 'Copy link')] : []));
-  fill(null); drawScan(null); drawCards();
+  fill(null); drawScan(null); drawLinks(null);
   showModal(h('div', { class: 'modal acc' },
     h('div', { class: 'ahead' }, a.avatar ? h('img', { class: 'av big', src: a.avatar }) : null, h('div', {}, h('h2', {}, a.personaName), h('small', {}, a.accountName))),
-    links, body, notes, cardBox, scanBox, a.games.some((g) => isCounterStrike(g.appid)) ? csBox : null, valueBox,
+    links, body, notes, scanBox, a.games.some((g) => isCounterStrike(g.appid)) ? csBox : null, valueBox,
     h('div', { class: 'mact' }, h('button', { class: 'btn ghost', onclick: closeModal }, 'Close'))));
   drawValue();
   window.api.accountInfo(accId).then((i) => {
     if (i.error) { notes.textContent = i.error; return; }
-    last = i; fill(i); drawScan(i.ach); drawCards(); drawLinks(i);
+    last = i; fill(i); drawScan(i.ach); drawLinks(i);
     if (i.steamId && a.games.some((g) => isCounterStrike(g.appid))) drawCs(i.steamId);
     notes.replaceChildren(...i.notes.map((n) => h('div', {}, n)));
   }).catch((e) => { notes.textContent = e.message || String(e); });
 }
 (window.api.onScanProgress || (() => {}))((m) => {
+  if (profScan && m.id === profScan.id) { profScan.i = m.i; profScan.total = m.total; const tx = document.getElementById('profScanTxt'); if (tx) tx.textContent = `Counting achievements ${m.i}/${m.total}\u2026`; }
+  if (m.totals && window._profScanUpdated) window._profScanUpdated(m.id, m.totals);
   const u = window._scanUI; if (!u) return;
   u.bar.style.width = (m.i / m.total * 100) + '%';
   u.line.textContent = `${m.i}/${m.total} \u00b7 ${m.name}`;
@@ -1737,6 +2358,8 @@ function openAccount(accId) {
 (function clock() {
   const el = document.getElementById('clk'); if (!el) return;
   const p = (n) => String(n).padStart(2, '0');
-  const tick = () => { const d = new Date(); el.textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; el.title = 'Local time' + (Intl.DateTimeFormat().resolvedOptions().timeZone ? ' (' + Intl.DateTimeFormat().resolvedOptions().timeZone + ')' : ''); };
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const title = 'Local time' + (zone ? ` (${zone})` : '');
+  const tick = () => { const d = new Date(); el.textContent = `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`; if (el.title !== title) el.title = title; };
   tick(); setInterval(tick, 1000);
 })();

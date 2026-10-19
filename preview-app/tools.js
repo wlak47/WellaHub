@@ -71,33 +71,47 @@
   }
 
   // ================= Inventory Overview =================
-  const IS = { q: '', res: null, busy: false };
+  const IS = { q: '', res: null, busy: false, filter: '', last: null };
   function inventory() {
-    const out = h('div', { class: 'uout' });
+    const out = h('div', { class: 'uout invall' });
+    const applyFilter = () => {
+      const f = IS.filter.trim().toLowerCase();
+      out.querySelectorAll('.invit').forEach((el) => { el.style.display = !f || (el.dataset.n || '').includes(f) ? '' : 'none'; });
+      out.querySelectorAll('.invg').forEach((card) => {
+        const items = card.querySelectorAll('.invit'); if (!items.length) return;
+        const shown = [...items].filter((el) => el.style.display !== 'none').length;
+        const c = card.querySelector('.invshown'); if (c) c.textContent = f ? shown + ' / ' + items.length + ' shown' : '';
+      });
+    };
     const paint = () => {
-      if (IS.busy) { out.replaceChildren(spinner('Reading the inventories (Steam allows one at a time, this takes a few seconds)...')); return; }
+      if (IS.busy) { out.replaceChildren(spinner('Reading the full inventories (one request at a time so Steam does not block you, this can take a little while)...')); return; }
       const r = IS.res; if (!r) { out.replaceChildren(); return; }
-      const msg = { private: 'Inventory is private.', limit: 'Steam says too many requests. Try again in a minute.', empty: 'Empty or not available.', error: 'Could not be read.' };
+      const msg = { private: 'Inventory is private.', limit: 'Steam says too many requests. Wait a minute, then press Refresh.', empty: 'Empty or not available.', error: 'Could not be read.' };
+      const search = h('input', { class: 'in invsearch', placeholder: 'Search items...', value: IS.filter, oninput: (e) => { IS.filter = e.target.value; applyFilter(); } });
       const kids = [
-        h('div', { class: 'cmph row' }, r.avatar ? h('img', { src: r.avatar, alt: '', draggable: 'false' }) : h('i', {}), h('b', {}, r.name)),
-        h('div', { class: 'sbtns' }, link(r.links.profile, 'Profile'), link(r.links.inventory, 'Inventory'), link(r.links.tradeOffers, 'Trade offers'), link(r.links.market, 'Community Market')),
-        hint('These links open the official Steam pages in your browser. Wella Hub never trades or moves items for you.')
+        h('div', { class: 'cmph row' }, r.avatar ? h('img', { src: r.avatar, alt: '', draggable: 'false' }) : h('i', {}), h('b', {}, r.name),
+          h('button', { class: 'btn ghost sm', style: 'margin-left:auto', onclick: () => run(IS.last, true) }, 'Refresh')),
+        h('div', { class: 'sbtns' }, link(r.links.profile, 'Profile'), link(r.links.inventory, 'Inventory'), link(r.links.tradeOffers, 'Trade offers'), link(r.links.market, 'Community Market'), search),
+        hint('These links open the official Steam pages in your browser. Wella Hub never trades or moves items for you. Results are kept for 10 minutes so Steam is not asked again and again.')
       ];
       for (const g of r.games) {
         const ok = g.status === 'ok';
+        const items = ok ? (g.items || g.top || []) : [];
         kids.push(h('div', { class: 'ucard invg' },
           h('div', { class: 'invh' }, h('b', {}, g.name), ok ? h('span', { class: 'chip' }, num(g.total) + ' items') : h('span', { class: 'chip' }, msg[g.status] || D),
-            link(g.url, 'Open on Steam', 'ghost sm')),
-          ok && g.total ? h('small', { style: muted }, `${num(g.tradable)} tradable \u00b7 ${num(g.marketable)} marketable \u00b7 ${num(g.unique)} different items` + (g.more ? ' \u00b7 first 1000 read' : '')) : (g.error ? h('small', { class: 'unote' }, g.error) : null),
-          ok && g.top.length ? h('div', { class: 'invi' }, g.top.map((t) => h('div', { class: 'invit', title: t.name },
-            t.icon ? h('img', { src: t.icon, alt: '', draggable: 'false', loading: 'lazy' }) : h('i', {}), h('span', {}, t.name), t.count > 1 ? h('b', {}, '\u00d7' + t.count) : null))) : null));
+            h('small', { class: 'invshown', style: muted }), link(g.url, 'Open on Steam', 'ghost sm')),
+          ok && g.total ? h('small', { style: muted }, `${num(g.tradable)} tradable \u00b7 ${num(g.marketable)} marketable \u00b7 ${num(g.unique)} different items` + (g.more ? ' \u00b7 Steam stopped the read early, press Refresh later for the rest' : '') + (g.stale ? ' \u00b7 showing the last saved copy' : '')) : (g.error ? h('small', { class: 'unote' }, g.error) : null),
+          items.length ? h('div', { class: 'invi' }, items.map((t) => h('div', { class: 'invit', title: t.full || t.name, 'data-n': (t.full || t.name || '').toLowerCase() },
+            t.icon ? h('img', { src: t.icon, alt: '', draggable: 'false', loading: 'lazy' }) : h('i', {}),
+            h('span', t.color ? { style: 'color:' + t.color } : {}, t.name), t.count > 1 ? h('b', {}, '\u00d7' + t.count) : null))) : null));
       }
       out.replaceChildren(...kids);
+      applyFilter();
     };
     const q = h('input', { class: 'in', placeholder: 'steamcommunity.com/id/... or SteamID64', value: IS.q, oninput: (e) => { IS.q = e.target.value; } });
-    const run = async (payload) => {
-      IS.busy = true; IS.res = null; paint();
-      try { const r = await window.api.utilInventory(payload); if (r.error) toast(r.error, 'bad'); else IS.res = r; }
+    const run = async (payload, force) => {
+      IS.busy = true; IS.res = null; IS.last = payload; paint();
+      try { const r = await window.api.utilInventory(force ? { ...payload, force: true } : payload); if (r.error) toast(r.error, 'bad'); else IS.res = r; }
       catch (e) { toast(e.message || String(e), 'bad'); }
       IS.busy = false; paint();
     };
@@ -106,7 +120,7 @@
     paint();
     const own = (typeof accounts !== 'undefined' ? accounts : []);
     return [h('b', {}, 'Inventory Overview'),
-      hint('See the inventories that work with Steam (CS2, Dota 2, TF2, Rust and Steam items), with links to the official trading pages. Needs a public inventory.'),
+      hint('See the full inventories that work with Steam (CS2, Dota 2, TF2, Rust and Steam items), with links to the official trading pages. Needs a public inventory (your own accounts are read with their own login).'),
       h('div', { class: 'lk' }, q, h('button', { class: 'btn red sm', onclick: go }, 'Look up')),
       own.length ? h('div', { class: 'sbtns' }, h('small', { style: muted }, 'My accounts:'), own.map((a) => h('button', { class: 'btn ghost sm', onclick: () => run({ accountId: a.id }) }, a.personaName || a.accountName))) : null,
       out].filter(Boolean);
@@ -228,17 +242,39 @@
       } }, 'Save');
       const name = h('input', { class: 'in', value: st.name || '', placeholder: st.host || 'Computer name', maxlength: '60' });
       name.addEventListener('change', async () => { try { st = await window.api.hookSet({ name: name.value }); toast('Saved', 'ok'); } catch (e) { toast(e.message || String(e), 'bad'); } });
+      const message = h('textarea', { class: 'in', maxlength: '1900', placeholder: 'Write a message to send to your Discord channel', rows: '4', style: 'resize:vertical' });
+      const exportPhone = h('button', { class: 'btn ghost sm', onclick: async (e) => {
+        const b = e.currentTarget; b.disabled = true;
+        try { const r = await window.api.phoneSetupExport(); if (r.error) toast(r.error, 'bad'); else if (r.ok) toast(`Exported ${r.count} account setups. Copy the JSON file to your phone and import it in Hour Boost.`, 'ok'); }
+        catch (er) { toast(er.message || String(er), 'bad'); }
+        b.disabled = false;
+      } }, 'Export accounts and game selections for Android');
+      const importPhone = h('button', { class: 'btn ghost sm', onclick: async (e) => {
+        const b = e.currentTarget; b.disabled = true;
+        try { const r = await window.api.phoneSetupImport(); if (r.error) toast(r.error, 'bad'); else if (r.ok) toast(`Imported ${r.applied} account setups${r.skipped ? `; ${r.skipped} account(s) did not match` : ''}.`, 'ok'); }
+        catch (er) { toast(er.message || String(er), 'bad'); }
+        b.disabled = false;
+      } }, 'Import setup from Android');
+      const sendMessage = h('button', { class: 'btn red sm', disabled: st.hasUrl ? null : 'disabled', onclick: async (e) => {
+        const text = message.value.trim(); if (!text) { toast('Write a message first.', 'bad'); return; }
+        const b = e.currentTarget; b.disabled = true;
+        try { const r = await window.api.hookSendMessage(text); if (r.error) toast(r.error, 'bad'); else { toast('Message sent to Discord', 'ok'); message.value = ''; } }
+        catch (er) { toast(er.message || String(er), 'bad'); }
+        b.disabled = !st.hasUrl;
+      } }, 'Send message');
       box.replaceChildren(
         h('div', { class: 'lk' }, url, save, st.hasUrl ? h('button', { class: 'btn stop sm', onclick: async () => { try { paint(await window.api.hookSet({ url: '' })); toast('Webhook removed'); } catch (e) { toast(e.message || String(e), 'bad'); } } }, 'Remove') : null),
-        hint('Discord: channel settings > Integrations > Webhooks > New webhook > Copy webhook URL. The link is kept on the PC and never shown again.'),
+        hint('Discord: channel settings > Integrations > Webhooks > New webhook > Copy webhook URL. Save the webhook for the action logs. The URL is kept on this PC.'),
         chk('Webhook on', 'enabled'),
-        chk('Send a message when Wella Hub starts', 'onStart', 'Computer, location, public IP and the direct link.'),
-        chk('Send a message when the Cloudflare link changes', 'onLink', 'The new link arrives on your phone by itself.'),
-        chk('Send a message when badges are crafted', 'onBadge', 'Utility > Badges.'),
-        chk('Send the daily summary', 'onDaily', 'Hours, cards and achievements of the day (Utility > Daily report).'),
-        chk('Send the Steam sale countdown messages', 'onSale', 'A day before, one hour before and when it starts.'),
-        chk('Send a warning when boosting loads the PC', 'onHealth', 'CPU or network over the limit (Utility > PC health).'),
+        chk('Log when Wella Hub starts', 'onStart', 'Computer, location, public IP and the direct link.'),
+        chk('Send Cloudflare link changes to default Web webhook', 'onLink', 'The new link arrives on your phone by itself.'),
+        chk('Log when badges are crafted', 'onBadge', 'Utility > Badges.'),
+        chk('Send daily summary', 'onDaily', 'Hours, cards and achievements of the day (Utility > Daily report).'),
+        chk('Send Steam sale countdown messages', 'onSale', 'A day before, one hour before and when it starts.'),
+        chk('Send PC health warnings', 'onHealth', 'CPU or network over the limit (Utility > PC health).'),
         h('div', { class: 'setrow' }, h('b', {}, 'Computer name'), name, hint('Shown in the message. Empty = ' + (st.host || 'the PC name') + '.')),
+        h('div', { class: 'setrow' }, h('b', {}, 'Send a custom message'), hint('Send a one-time message through the saved Discord webhook.'), message, sendMessage),
+        h('div', { class: 'setrow' }, h('b', {}, 'Android setup transfer'), hint('Moves account names, selected games, and favorites. Steam login sessions are never included. Import updates accounts with matching Steam usernames.'), h('div', { class: 'sbtns' }, exportPhone, importPhone)),
         h('div', { class: 'sbtns' }, h('button', { class: 'btn ghost sm', disabled: st.hasUrl ? null : 'disabled', onclick: async (e) => {
           const b = e.currentTarget; b.disabled = true;
           try { const r = await window.api.hookTest(); if (r.error) toast(r.error, 'bad'); else toast('Test message sent', 'ok'); } catch (er) { toast(er.message || String(er), 'bad'); }
@@ -246,8 +282,8 @@
         } }, 'Send test message')));
     };
     window.api.hookGet().then(paint).catch((e) => box.replaceChildren(hint(e.message || String(e))));
-    return [h('b', {}, 'Webhook (Discord)'),
-      hint('Sends the Cloudflare link to a Discord channel, so you can open it from your phone without copying it by hand. A notification also shows in the app each time a message is sent.'),
+    return [h('b', {}, 'Action log webhook (Discord)'),
+      hint('This webhook receives safe action logs for boosts, achievements, free games, and selected Utility actions. Web-access password and Cloudflare link/control messages use the separate default Web webhook.'),
       box];
   }
 

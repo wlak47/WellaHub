@@ -1,7 +1,7 @@
 // Mini widget: draws what the main process sends every second. No Steam logic here.
 (function () {
   const w = document.getElementById('w');
-  let cfg = null, data = [], lastSig = '', lastSize = '';
+  let cfg = null, data = [], lastSize = '';
   const WORDS = {
     en: {session:'Session',total:'Total',drops:'Drops left',games:'Games',online:'Boosting',busy:'Connecting',offline:'Stopped',all:'All',none:'No account'},
     ro: {session:'Sesiune',total:'Total',drops:'Cărți rămase',games:'Jocuri',online:'Boost activ',busy:'Conectare',offline:'Oprit',all:'Toate',none:'Niciun cont'},

@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Wella Hub">
 <link rel="apple-touch-icon" href="assets/emblem.png">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
-<title>Wella Hub v0.2-testbuild</title>
+<title>Wella Hub v0.7.0</title>
 <link rel="stylesheet" href="style.css">
 <script src="theme.js"></script>
 <script src="bg.js"></script>
@@ -36,21 +36,26 @@
     </div>
     <div class="sp-bar"><i id="spBar"></i></div>
   </div>
-  <div class="sp-ver">v0.2-testbuild</div>
+  <div class="sp-ver">v0.7.0</div>
   <button id="spSkip" class="btn red sp-skip">Skip</button>
 </div>
 
 <header class="top">
   <img class="logo logoimg" src="assets/emblem-s.png" alt="" draggable="false">
-  <span class="brand"><span>Wella</span><b>Hub</b></span>
+  <span class="brand">Wella<b>Hub</b></span>
   <div class="tabs">
     <span class="ind"></span>
-    <button class="tab" data-tab="ach"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>Achievement Manager</button>
+    <button class="tab" id="tabDash" data-tab="dash"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>Dashboard</button>
+    <button class="tab hidden" id="tabDevices" data-tab="devices">DeviceManager</button>
+    <button class="tab" id="tabAch" data-tab="ach"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4z"/><path d="M17 5h3v2a3 3 0 0 1-3 3M7 5H4v2a3 3 0 0 0 3 3"/></svg>Achievement Manager</button>
     <button class="tab active" data-tab="boost"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>Hour Booster</button>
     <button class="tab" id="tabFree" data-tab="free"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9"/></svg>Free Games</button>
     <button class="tab" id="tabUtil" data-tab="util"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z"/></svg>Utility</button>
+    <button class="tab" id="tabFriends" data-tab="friends">Manage Friends</button>
     <button class="tab hidden" id="tabFps" data-tab="fps"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l5-6 4 4 4-8 5 6"/><path d="M3 21h18"/></svg>FPS Monitor</button>
     <button class="tab hidden" id="tabPc" data-tab="pcmon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4M7 11l2-2 2 3 3-5 3 4"/></svg>Monitor</button>
+    <button class="tab hidden" id="tabTaskManager" data-tab="taskmgr">Task Manager</button>
+    <button class="tab hidden" id="tabExecScanner" data-tab="execscan">Executable Scanner</button>
     <button class="tab hidden" id="tabRemote" data-tab="remote">Remote PC</button>
   </div>
   <button class="gear" id="gear" title="Settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
@@ -70,6 +75,8 @@
     <div id="cards"></div>
   </main>
 </div>
+<div class="shell hidden" id="viewDash"><main class="main pcmain dashmain" id="dashMain"></main></div>
+<div class="shell hidden" id="viewDevices"><main class="main pcmain" id="devicesMain"></main></div>
 <div class="shell hidden" id="viewAch">
   <aside class="gside">
     <div id="aProf" class="aprof"></div>
@@ -81,8 +88,12 @@
     </div>
     <button class="btn ghost" id="gMissing" title="Reads every game (nothing is started or changed) and ticks only the games where you still miss achievements">Select games with missing achievements</button>
     <button class="btn ghost hidden" id="gResume" title="Continues the search with the games that were not read yet and the ones that failed">Resume search</button>
+    <button class="btn stop" id="gStopAll" title="Stops the current Achievement Manager action and saves unfinished games">Stop all</button>
     <small class="fnote" id="gFind"></small>
-    <button class="btn red" id="gBulk" disabled>Unlock all achievements</button>
+    <div class="gtools gbulktools">
+      <button class="btn red" id="gUnlock" disabled>Unlock selected</button>
+      <button class="btn ghost" id="gLock" disabled>Lock selected</button>
+    </div>
     <button class="mnote" id="aMethod" title="Click to check again"></button>
     <div id="gList" class="glist"></div>
   </aside>
@@ -91,6 +102,7 @@
 <div class="shell hidden" id="viewUtil">
   <main class="main"><div class="utilpage" id="utilBody"></div></main>
 </div>
+<div class="shell hidden" id="viewFriends"><main class="main pcmain" id="friendsMain"></main></div>
 <div class="shell hidden" id="viewFree"><main class="main pcmain free-main" id="freeMain"></main></div>
 <div class="shell hidden" id="viewPc">
   <main class="main pcmain" id="pcMain"><div class="empty">Monitor is off. Turn it on in Settings &gt; General.</div></main>
@@ -98,6 +110,8 @@
 <div class="shell hidden" id="viewFps">
   <main class="main pcmain" id="fpsMain"><div class="empty">FPS Monitor is off. Turn it on in Settings &gt; General.</div></main>
 </div>
+<div class="shell hidden" id="viewTaskManager"><main class="main pcmain" id="taskManagerMain"></main></div>
+<div class="shell hidden" id="viewExecScanner"><main class="main pcmain" id="execScannerMain"></main></div>
 <div class="shell hidden" id="viewRemote"><main class="main pcmain" id="remoteMain"></main></div>
 <footer class="foot">
   <div class="fl">
@@ -115,9 +129,14 @@
 <script src="boot.js"></script>
 <script src="app.js"></script>
 <script src="tools.js"></script>
+<script src="dcbots.js"></script>
 <script src="pcmon.js"></script>
+<script src="exec-scanner.js"></script>
 <script src="remote-pc.js"></script>
+<script src="devices.js"></script>
+<script src="friends.js"></script>
 <script src="free.js"></script>
 <script src="extras.js"></script>
 </body>
 </html>
+

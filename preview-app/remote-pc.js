@@ -1,7 +1,7 @@
 (function () {
   const $ = (s) => document.querySelector(s);
   const web = !!window.__WELLA_WEB;
-  let stream = null, timer = 0, video = null, canvas = null, lastMove = 0, lastFrameHash = '', monitors = [], selectedMonitor = '', fps = 5, quality = 540, targetFps = 5, targetWidth = 960, targetHeight = 540, receivedFrames = 0, monitorsLoaded = false, monitorsLoading = false;
+  let stream = null, timer = 0, video = null, canvas = null, lastMove = 0, lastFrameHash = '', monitors = [], selectedMonitor = '', fps = 60, quality = 1080, targetFps = 60, targetWidth = 1920, targetHeight = 1080, receivedFrames = 0, monitorsLoaded = false, monitorsLoading = false;
   const point = (img, e) => {
     const r = img.getBoundingClientRect(), iw = img.naturalWidth || r.width, ih = img.naturalHeight || r.height;
     const scale = Math.min(r.width / iw, r.height / ih), w = iw * scale, h = ih * scale;
@@ -30,7 +30,7 @@
     const sendText = async () => { if (!typeText.value) return; await window.api.remoteScreenInput({ action: 'type', text: typeText.value }); typeText.value = ''; };
     typeText.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); sendText(); } });
     const monitorSelect = h('select', { class: 'in remote-setting', title: 'Monitor to share', onchange: (e) => { selectedMonitor = e.target.value; } }, monitors.length ? monitors.map((m) => h('option', { value: m.id, selected: selectedMonitor === m.id ? 'selected' : null }, `${m.name}${m.width ? ` · ${m.width}×${m.height}` : ''}${m.primary ? ' · Primary' : ''}`)) : [h('option', { value: '' }, 'Detecting monitors…')]);
-    const fpsSelect = h('select', { class: 'in remote-setting', title: 'Frames per second', onchange: (e) => { fps = Number(e.target.value) || 5; } }, [1, 2, 5, 8, 10, 15, 20].map((n) => h('option', { value: String(n), selected: fps === n ? 'selected' : null }, `${n} FPS`)));
+    const fpsSelect = h('select', { class: 'in remote-setting', title: 'Frames per second', onchange: (e) => { fps = Number(e.target.value) || 5; } }, [15, 20, 30, 45, 60].map((n) => h('option', { value: String(n), selected: fps === n ? 'selected' : null }, `${n} FPS`)));
     const qualitySelect = h('select', { class: 'in remote-setting', title: 'Image quality / bandwidth', onchange: (e) => { quality = Number(e.target.value) || 540; } }, [[540, '540p · data saver'], [720, '720p · balanced'], [1080, '1080p · sharp']].map(([n, label]) => h('option', { value: String(n), selected: quality === n ? 'selected' : null }, label)));
     const refreshMonitors = h('button', { class: 'btn ghost sm', onclick: async () => { try { const items = await window.api.remoteScreenMonitors(); monitors = Array.isArray(items) ? items : []; const primary = monitors.find((m) => m.primary) || monitors[0]; if (!monitors.some((m) => m.id === selectedMonitor)) selectedMonitor = primary && primary.id || ''; monitorsLoaded = true; show(); } catch (err) { toast('Could not detect PC monitors: ' + err.message, 'bad'); } } }, 'Refresh monitors');
     const start = h('button', { class: 'btn start', onclick: async (e) => { e.currentTarget.disabled = true; try { const r = await window.api.remoteScreenStart({ sourceId: selectedMonitor, fps, quality }); if (r && r.error) throw new Error(r.error); toast(`Screen sharing started · ${fps} FPS · ${quality}p.`, 'ok'); } catch (err) { toast(err.message, 'bad'); } finally { e.currentTarget.disabled = false; } } }, 'Start sharing');
@@ -50,7 +50,7 @@
     try {
       let sourceId = config.sourceId;
       if (!sourceId) { const source = await window.api.remoteScreenSource(); if (source.error) throw new Error(source.error); sourceId = source.id; }
-      targetFps = Math.max(1, Math.min(20, Number(config.fps) || 5));
+      targetFps = Math.max(1, Math.min(60, Number(config.fps) || 60));
       targetWidth = Math.max(640, Math.min(1920, Number(config.maxWidth) || 960)); targetHeight = Math.round(targetWidth * 9 / 16);
       stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId, maxWidth: targetWidth, maxHeight: targetHeight, maxFrameRate: targetFps } } });
       video = document.createElement('video'); video.muted = true; video.srcObject = stream; await video.play();
@@ -67,7 +67,7 @@
         let data = canvas.toDataURL('image/jpeg', targetWidth <= 960 ? 0.40 : 0.44);
         if (data.length > 480000) { canvas.width = Math.max(1, Math.round(canvas.width * 0.8)); canvas.height = Math.max(1, Math.round(canvas.height * 0.8)); ctx.drawImage(video, 0, 0, canvas.width, canvas.height); data = canvas.toDataURL('image/jpeg', 0.32); }
         window.api.remoteScreenFrame({ data }).catch(() => {});
-      }, Math.max(50, Math.round(1000 / targetFps)));
+      }, Math.max(16, Math.round(1000 / targetFps)));
     } catch (err) { toast('Screen sharing failed: ' + (err.message || err), 'bad'); await window.api.remoteScreenStop(); }
   });
   window.RemotePC = { show };

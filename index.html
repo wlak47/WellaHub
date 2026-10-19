@@ -2,10 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#100711">
-  <meta name="description" content="Wella Hub — a polished desktop companion for your Steam library, play sessions and remote access.">
-  <title>Wella Hub v0.7.0 — Your library, in your hands</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#08070a">
+  <meta name="description" content="Wella Hub brings your Steam accounts, play sessions, achievements and free games into one dark pink dashboard.">
+  <meta property="og:title" content="Wella Hub — Your Steam setup, in one place">
+  <meta property="og:description" content="Explore the interactive Wella Hub v0.7.0 preview and download the Windows app.">
+  <meta property="og:type" content="website">
+  <title>Wella Hub v0.7.0 — Your Steam setup, in one place</title>
   <link rel="icon" href="assets/logo.png">
   <link rel="stylesheet" href="site.css">
   <link rel="stylesheet" href="preview-override.css">
@@ -13,25 +16,34 @@
 <body>
   <div class="glow glow-a"></div><div class="glow glow-b"></div>
   <header class="topbar wrap">
-    <a class="brand" href="#top"><img src="assets/logo.png" alt="Wella Hub"><span>Wella <b>Hub</b></span></a>
-    <nav><a href="#features">Features</a><a href="#what-it-does">What it does</a><a href="#preview">Preview</a><a href="#guides">Guides</a></nav>
-    <a class="button small" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" download>Download <span>↗</span></a>
+    <a class="brand" href="#top" aria-label="Wella Hub home"><img src="assets/logo.png" alt=""><span>Wella <b>Hub</b><small>STEAM COMPANION</small></span></a>
+    <button class="nav-toggle" type="button" aria-label="Open navigation" aria-expanded="false" aria-controls="site-nav"><span></span><span></span></button>
+    <nav id="site-nav" class="site-nav" aria-label="Main navigation"><a href="#features">Features</a><a href="#what-it-does">How it works</a><a href="#preview">Preview</a><a href="#guides">Guides</a></nav>
+    <a class="button small" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" target="_blank" rel="noopener noreferrer">Download <span>↗</span></a>
   </header>
 
   <main id="top">
     <section class="hero wrap">
-      <div class="hero-copy"><div class="eyebrow"><i></i> YOUR STEAM COMPANION</div>
-        <h1>Your library.<br><span>Your rhythm.</span></h1>
-        <p>Keep an eye on your library, organize play sessions and browse free games from one calm, beautifully pink dashboard.</p>
-        <div class="hero-actions"><a class="button" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" download>Download for Windows <span>↓</span></a><a class="textlink" href="#preview">Explore the preview <span>→</span></a></div><a class="button go-preview" href="#preview">Go to preview <span>↓</span></a>
-        <div class="trust"><span>✦ Desktop app</span><span>✦ Phone friendly</span><span>✦ Preview without an account</span></div>
+      <div class="hero-copy"><div class="eyebrow"><i></i> YOUR STEAM COMPANION <span class="version-chip">v0.7.0</span></div>
+        <h1>Your Steam setup.<br><span>All in one place.</span></h1>
+        <p>Bring your accounts, play sessions, achievements and free game finds into one dashboard—with the same dark pink look on desktop and phone.</p>
+        <div class="hero-actions"><a class="button" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" target="_blank" rel="noopener noreferrer">Download for Windows <span>↓</span></a><a class="textlink" href="#preview">Explore the live preview <span>→</span></a></div>
+        <div class="trust"><span><i>✓</i> Desktop app</span><span><i>✓</i> Phone friendly</span><span><i>✓</i> Preview without sign-in</span></div>
       </div>
-      <div class="hero-art" aria-label="Wella Hub desktop preview"><div class="orbit"></div><div class="hero-window">
-        <div class="window-top"><span class="dots"><i></i><i></i><i></i></span><span>Wella Hub <b>●</b></span><small>−　□　×</small></div>
-        <div class="mini-layout"><aside><img src="assets/logo.png"><i>▦</i><i>♧</i><i>◈</i><i>⚙</i></aside><div class="mini-main"><div class="mini-heading"><div><small>HOUR BOOSTER</small><h3>7 accounts boosting</h3></div><span class="live">● ONLINE</span></div><div class="mini-account"><div class="avatar">W</div><div class="who"><b>WellaHub</b><small>32 games · Online</small></div><div class="mini-stat"><small>THIS SESSION</small><b>03:42</b></div><div class="mini-stat"><small>TOTAL</small><b>128:16</b></div><button>Stop</button></div>
-          <div class="mini-games"><div class="mini-game"><div class="cover c1">DOTA 2</div><b>Dota 2</b><small>12.4 h</small></div><div class="mini-game"><div class="cover c2">CS2</div><b>Counter-Strike 2</b><small>86.2 h</small></div><div class="mini-game"><div class="cover c3">APEX</div><b>Apex Legends</b><small>24.8 h</small></div></div>
-        </div></div>
-        <div class="float-tag tag-a">✦ &nbsp; Built around your library</div><div class="float-tag tag-b">⌁ &nbsp; Your setup at a glance</div>
+      <div class="hero-art" aria-label="Wella Hub dashboard preview">
+        <div class="hero-window">
+          <div class="window-top"><span class="window-brand"><img src="assets/logo.png" alt="">Wella <b>Hub</b></span><span class="window-version"><i></i> v0.7.0 · DASHBOARD</span><span class="window-controls">−　□　×</span></div>
+          <div class="window-nav"><span class="active">▦ <b>Dashboard</b></span><span>♜ <b>Achievement Manager</b></span><span>◷ <b>Hour Booster</b></span><span>＋ <b>Free Games</b></span><span>⚙ <b>Utility</b></span></div>
+          <div class="mini-main">
+            <div class="mini-heading"><div><small>OVERVIEW · ALL ACCOUNTS</small><h3>Your library at a glance</h3></div><span class="live"><i></i> LIVE</span></div>
+            <div class="dashboard-stats"><div><small>ACCOUNTS</small><b>7</b></div><div><small>BOOSTING NOW</small><b><i>7 / 7</i></b></div><div><small>STEAM HOURS</small><b>74,860</b></div><div><small>GAMES OWNED</small><b>1,563</b></div></div>
+            <div class="mini-section-head"><b>Accounts</b><span>All accounts <i>⌄</i></span></div>
+            <div class="mini-account"><span class="mini-avatar av-one">W</span><span class="mini-user"><b>wella</b><small>133 games · 32 selected</small></span><span class="mini-pill">Boosting</span><span class="mini-hours"><small>SESSION</small><b>07:08</b></span></div>
+            <div class="mini-account"><span class="mini-avatar av-two">P</span><span class="mini-user"><b>potisamastrigiTATI</b><small>124 games · 32 selected</small></span><span class="mini-pill">Boosting</span><span class="mini-hours"><small>SESSION</small><b>04:32</b></span></div>
+            <div class="mini-account"><span class="mini-avatar av-three">N</span><span class="mini-user"><b>NeonPlayer</b><small>86 games · 24 selected</small></span><span class="mini-pill idle">Idle</span><span class="mini-hours"><small>SESSION</small><b>—</b></span></div>
+          </div>
+        </div>
+        <div class="float-tag tag-a"><i>✦</i> Made for your Steam library</div><div class="float-tag tag-b"><i>⌁</i> One clear dashboard</div>
       </div>
     </section>
 
@@ -49,15 +61,17 @@
       <p class="plain-note">For phone access, keep Wella Hub open on the PC, turn on Web access in Settings and use a separate, strong web password. Only share the web link with people you trust.</p>
     </section>
 
-    <section class="preview-section" id="preview"><div class="wrap"><div class="section-head"><div><div class="eyebrow">TAKE A LOOK AROUND</div><h2>Try the <span>preview.</span></h2></div><p>No account needed. This interactive sample uses a fictional WellaHub profile and sample game hours.</p></div>
-      <div class="preview-switch"><button class="selected" data-preview="desktop">Desktop app</button><button data-preview="phone">Phone website</button><span>DEMO MODE · SAMPLE DATA · BUTTONS ARE SIMULATED</span></div>
-      <div class="preview-app-wrap" id="demo"><iframe class="app-preview-frame" src="preview-app/index.html?nosplash=1" title="Interactive Wella Hub desktop preview" loading="lazy"></iframe></div>
-      <div class="phone-preview" id="phone-preview"><div class="phone-app-wrap"><iframe class="app-preview-frame" src="preview-app/index.html?nosplash=1" title="Interactive Wella Hub phone website preview" loading="lazy"></iframe></div><div class="phone-caption"><span class="eyebrow">THE PHONE VIEW</span><h3>Your PC dashboard,<br>in your pocket.</h3><p>This is the same Wella Hub web screen, resized the way it appears in a phone browser.</p><a class="textlink" href="#guide-phone">Read the phone setup guide →</a></div></div>
+    <section class="preview-section" id="preview"><div class="wrap"><div class="section-head"><div><div class="eyebrow">TAKE A LOOK AROUND</div><h2>The real interface.<br><span>Safe to explore.</span></h2></div><p>Switch tabs, open settings and try the controls. This v0.7.0 preview uses sample accounts; no actions reach Steam or your PC.</p></div>
+      <div class="preview-toolbar"><div class="preview-switch" role="group" aria-label="Preview size"><button class="selected" data-preview="desktop" aria-pressed="true">Desktop app</button><button data-preview="phone" aria-pressed="false">Phone view</button></div><span class="preview-note"><i></i> v0.7.0 · INTERACTIVE PREVIEW · SAMPLE DATA ONLY</span><a class="preview-download" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" target="_blank" rel="noopener noreferrer">Get the app <b>↗</b></a></div>
+      <div class="preview-layout" id="preview-layout">
+        <div class="preview-app-wrap" id="demo"><div class="preview-framebar"><span><i></i><i></i><i></i> <b>Wella Hub</b></span><small>v0.7.0 · SAMPLE PROFILE</small><span class="frame-lock">PREVIEW MODE</span></div><div class="preview-viewport"><iframe id="app-preview" class="app-preview-frame" src="preview-app/index.html?nosplash=1" title="Interactive Wella Hub v0.7.0 desktop preview" loading="lazy" allow="fullscreen"></iframe></div></div>
+        <aside class="phone-caption" id="phone-caption" aria-hidden="true"><span class="eyebrow">THE PHONE VIEW</span><h3>Your dashboard,<br><span>wherever you are.</span></h3><p>The same Wella Hub interface adapts to a phone-sized screen. The preview stays safely disconnected from your PC.</p><a class="textlink" href="#guide-phone">Read the phone setup guide <b>→</b></a></aside>
+      </div>
     </div></section>
 
     <section class="guides section wrap" id="guides"><div class="section-head"><div><div class="eyebrow">START WITH THE BASICS</div><h2>Two guides.<br><span>Ten clear steps each.</span></h2></div><p>From first download to phone access, follow along at your own pace.</p></div>
-      <article class="guide-card" id="guide-desktop"><div class="guide-title"><div><div class="eyebrow">GUIDE 01 · WINDOWS</div><h3>Install and explore the desktop app</h3><p>About 5 minutes · Windows 10 or 11</p></div><a class="button small" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" download>Get the installer ↓</a></div><ol>
-        <li><b>Download Wella Hub.</b><span>Choose “Download for Windows” above. The installer is also available in <code>website/applicatzion</code>.</span></li>
+      <article class="guide-card" id="guide-desktop"><div class="guide-title"><div><div class="eyebrow">GUIDE 01 · WINDOWS</div><h3>Install and explore the desktop app</h3><p>About 5 minutes · Windows 10 or 11</p></div><a class="button small" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" target="_blank" rel="noopener noreferrer">Get v0.7.0 installer ↓</a></div><ol>
+        <li><b>Download Wella Hub.</b><span>Choose “Download for Windows” above to get the current v0.7.0 installer from the official release.</span></li>
         <li><b>Wait for the download to finish.</b><span>Keep the full <code>Wella Hub Setup.exe</code> file; it is a large installer.</span></li>
         <li><b>Open the installer.</b><span>Double-click the downloaded file. If Windows asks whether to run it, check that the filename is Wella Hub Setup.exe, then continue.</span></li>
         <li><b>Choose where it belongs.</b><span>Follow the setup window and choose an install location if it asks. Keep enough disk space available.</span></li>
@@ -114,7 +128,7 @@
       </div>
     </section>
 
-    <section class="download-band wrap"><div><div class="eyebrow">READY WHEN YOU ARE</div><h2>Make room for <span>your next session.</span></h2><p>Download the Windows installer and take a look around.</p></div><a class="button" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" download>Download Wella Hub <span>↓</span></a></section>
+    <section class="download-band wrap" id="download"><div><div class="eyebrow">READY WHEN YOU ARE</div><h2>Bring your Steam setup <span>together.</span></h2><p>Download the current Windows installer · v0.7.0 · about 118 MB.</p><small>Official Wella Hub release · Windows 10/11</small></div><a class="button" href="https://github.com/wlak47/WellaHub/releases/download/wellahubv2/Wella.Hub.Setup.v.0.7.0.exe" target="_blank" rel="noopener noreferrer">Download Wella Hub <span>↓</span></a></section>
   </main>
   <section class="tos wrap" id="terms"><details><summary>Terms of Service (ToS)</summary><div><p>Wella Hub is provided as-is for personal use. You are responsible for the accounts you connect and the actions you choose. Follow Steam’s terms and the rules of any service you use.</p><p>The website preview uses fictional sample data. Its buttons do not control your computer or contact Steam. Features in the installed app may read or change data only after you choose to connect and use them.</p><p>Keep passwords, API keys and remote-access links private. Use remote access only on devices and networks you trust. You can disable web access in the app’s Settings.</p><p>Availability and results can depend on Steam, third-party services, network access and your settings. The app and site may change as they are updated.</p><p>By downloading or using Wella Hub, you agree to use it lawfully and accept these terms. If you do not agree, do not use the app.</p></div></details></section>
   <footer class="wrap footer"><a class="brand" href="#top"><img src="assets/logo.png" alt=""><span>Wella <b>Hub</b></span></a><span>Made with <b>♥</b> by Wella</span><div><a href="#guides">Setup guides ↑</a><a href="#terms">Terms of Service</a></div></footer>
